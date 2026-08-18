@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  # Publishing is driven by the tag, so what is released is always a commit that was tagged for it.
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: 21
+          cache: 'gradle'
+
+      - name: Run unit tests
+        run: ./gradlew test --stacktrace
+
+      - name: Build with Gradle
+        run: ./gradlew assembleRelease --stacktrace
+
+      # No signing keys are configured here, so Gradle leaves the build unsigned. The name says so,
+      # because whoever downloads it has to sign it before a device will install it.
+      - name: Name the APK
+        run: |
+          mkdir -p build/artifacts
+          cp app/build/outputs/apk/release/app-release-unsigned.apk \
+            "build/artifacts/AdAway-${GITHUB_REF_NAME}-unsigned.apk"
+
+      - name: Write the release notes
+        run: |
+          cat > build/release-notes.md <<'NOTES'
+          A development build of this fork, published for testing. Expect it to move faster and
+          break more readily than the release it is based on.
+
+          ## The APK is not signed
+
+          The build is produced without any signing keys, so it carries no signature and no device
+          will install it as it is. Sign it yourself with your own key before installing:
+
+          ```sh
+          zipalign -p -f 4 AdAway-TAG-unsigned.apk AdAway-aligned.apk
+          apksigner sign --ks my-release.keystore --out AdAway.apk AdAway-aligned.apk
+          ```
+
+          Both tools ship with the Android SDK build tools. Any key will do, including one made
+          for the purpose with `keytool`, as long as you keep it: Android will only let a later
+          build replace this one if it carries the same signature.
+
+          For the same reason this cannot be installed over the official AdAway, or over a build
+          signed with a different key. Uninstall the other one first, which removes its settings
+          and lists, so export a backup beforehand if you want to keep them.
+
+          ## Installing
+
+          Ad blocking needs either root or the VPN based method, which the application asks about
+          when it first starts. The DNS request recording needs root, and a working `tcpdump`,
+          either the one bundled here or the one your system provides.
+          NOTES
+          sed -i "s/AdAway-TAG-unsigned.apk/AdAway-${GITHUB_REF_NAME}-unsigned.apk/" build/release-notes.md
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "build/artifacts/AdAway-${GITHUB_REF_NAME}-unsigned.apk" \
+            --title "AdAway ${GITHUB_REF_NAME}" \
+            --notes-file build/release-notes.md \
+            --prerelease \
+            --verify-tag
