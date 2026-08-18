@@ -16,6 +16,10 @@
     <string name="log_recording_starting">Starting the recording…</string>
     <string name="log_recording_stopping">Stopping the recording…</string>
     <string name="log_recording_active">Recording DNS requests…</string>
+    <!-- Export -->
+    <string name="log_export_description">Export the recorded requests</string>
+    <string name="log_export_success">Recorded requests exported to \'%s\'.</string>
+    <string name="log_export_failed">Failed to export the recorded requests to \'%s\'.</string>
     <!-- Redirect dialog  -->
     <string name="log_redirect_dialog_title">Redirect domain</string>
 </resources>

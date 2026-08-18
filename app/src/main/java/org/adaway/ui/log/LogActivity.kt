@@ -3,6 +3,8 @@ package org.adaway.ui.log
 import android.content.Intent
 import android.net.Uri
 import android.text.format.DateFormat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -125,6 +127,14 @@ internal fun LogRoute(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val blockedRequestsIgnored = remember(viewModel) { viewModel.areBlockedRequestsIgnored() }
+    // The file is created where the user picks it, exactly as a configuration backup is.
+    val exportLauncher = rememberLauncherForActivityResult(
+        CreateDocument(LogExporter.MIME_TYPE)
+    ) { uri ->
+        if (uri != null) {
+            LogExporter.export(context, uri, logs)
+        }
+    }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -153,6 +163,7 @@ internal fun LogRoute(
         onRefresh = viewModel::updateLogs,
         onSearch = viewModel::search,
         onToggleRecording = viewModel::toggleRecording,
+        onExport = { exportLauncher.launch(LogExporter.FILE_NAME) },
         onEntryAction = { entry, targetType ->
             onLogEntryAction(
                 context = context,
@@ -209,6 +220,7 @@ private fun LogScreen(
     onRefresh: () -> Unit,
     onSearch: (String) -> Unit,
     onToggleRecording: () -> Unit,
+    onExport: () -> Unit,
     onEntryAction: (LogEntry, ListType) -> Unit,
     onOpenHost: (String) -> Unit,
     onCopyHost: (String) -> Unit
@@ -277,11 +289,20 @@ private fun LogScreen(
             )
         },
         floatingActionButton = {
-            RecordingButton(
-                recording = recording,
-                busy = togglingRecording,
-                onClick = onToggleRecording
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Nothing to export until something has been recorded.
+                if (logs.isNotEmpty()) {
+                    ExportButton(onClick = onExport)
+                }
+                RecordingButton(
+                    recording = recording,
+                    busy = togglingRecording,
+                    onClick = onToggleRecording
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -395,6 +416,28 @@ private fun RecordingStatus(recording: Boolean, busy: Boolean) {
                 )
             }
         }
+    }
+}
+
+/**
+ * The control writing the recorded requests to a file.
+ *
+ * Built like the recording control beside it, in the colours that one wears while it is idle, so
+ * the two read as a pair rather than as one button and an afterthought.
+ */
+@Composable
+private fun ExportButton(onClick: () -> Unit) {
+    FloatingActionButton(
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = MaterialTheme.shapes.large
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_save_24dp),
+            contentDescription = stringResource(R.string.log_export_description),
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
