@@ -39,7 +39,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -342,43 +341,47 @@ private fun HomeScreen(
     ExpressiveScaffold(
         bottomBar = {
             ExpressiveFloatingBottomBar {
-                BottomAppBar(
-                    modifier = Modifier.fillMaxWidth(),
-                    containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    tonalElevation = 0.dp,
-                    actions = {
-                        // Checking the sources and opening the recorded requests are both on the
-                        // screen behind this bar, so the bar only opens the menu.
-                        IconButton(onClick = onOpenDrawer) {
+                // Laid out by hand rather than as a bottom app bar: that bar centres what it is
+                // given but places its floating button by a rule of its own, against the top of
+                // the bar with a padding, so the two were aligned by different means and did not
+                // line up. Here both are centred by the same one.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(BOTTOM_BAR_HEIGHT)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Checking the sources and opening the recorded requests are both on the
+                    // screen behind this bar, so the bar only opens the menu.
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_menu_24dp),
+                            contentDescription = stringResource(R.string.open_drawer_button_description),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    FloatingActionButton(
+                        onClick = onToggleAdBlocking,
+                        containerColor = if (state.adBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (state.adBlocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        if (state.adBlocked) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_menu_24dp),
-                                contentDescription = stringResource(R.string.open_drawer_button_description)
+                                painter = painterResource(R.drawable.ic_pause_24dp),
+                                contentDescription = stringResource(R.string.adblock_pause_button_description)
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(R.drawable.logo),
+                                contentDescription = stringResource(R.string.app_logo),
+                                modifier = Modifier.size(32.dp)
                             )
                         }
-                    },
-                    floatingActionButton = {
-                        FloatingActionButton(
-                            onClick = onToggleAdBlocking,
-                            containerColor = if (state.adBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = if (state.adBlocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
-                            shape = MaterialTheme.shapes.large
-                        ) {
-                            if (state.adBlocked) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_pause_24dp),
-                                    contentDescription = stringResource(R.string.adblock_pause_button_description)
-                                )
-                            } else {
-                                Image(
-                                    painter = painterResource(R.drawable.logo),
-                                    contentDescription = stringResource(R.string.app_logo),
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
-                        }
                     }
-                )
+                }
             }
         }
     ) { innerPadding ->
@@ -937,5 +940,8 @@ private fun HomeQuickActionCard(
     }
 }
 
-
-
+/**
+ * The height of the bottom bar. The floating button it holds is 56dp, so this leaves an even
+ * margin above and below it, the same the bottom app bar used to give.
+ */
+private val BOTTOM_BAR_HEIGHT = 80.dp
