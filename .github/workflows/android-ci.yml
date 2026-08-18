@@ -35,15 +35,23 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew assembleRelease --stacktrace
 
+      # An artifact uploaded as it is takes the name of the file, so the file is named here
+      # rather than the artifact below.
+      - name: Name the APK
+        run: |
+          mkdir -p build/artifacts
+          cp app/build/outputs/apk/release/app-release-unsigned.apk \
+            build/artifacts/AdAway-development.apk
+
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: AdAway-development
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
-      
+          path: build/artifacts/AdAway-development.apk
+          # Upload the file as it is, so it downloads as an APK instead of a zip holding one.
+          archive: false
+
       - name: Update dependency graph
-        uses: mikepenz/gradle-dependency-submission@v1.0.0 # Deprecated: need to be changed
+        uses: gradle/actions/dependency-submission@v6
         with:
-          gradle-dependency-path: "app/build.gradle"
-          gradle-build-module: ":app"
-          gradle-build-configuration: "releaseCompileClasspath"
+          dependency-graph-include-projects: ":app"
+          dependency-graph-include-configurations: "releaseCompileClasspath"
