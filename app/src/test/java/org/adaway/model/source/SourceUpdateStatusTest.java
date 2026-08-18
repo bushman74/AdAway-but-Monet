@@ -76,4 +76,33 @@ public class SourceUpdateStatusTest {
         assertTrue(upToDate > 0);
         assertTrue(outdated > 0);
     }
+
+    @Test
+    public void neverInstalledSourceHasToBeRetrieved() {
+        assertTrue(SourceUpdateStatus.needsRetrieval(null, RECENT, RECENT));
+        assertTrue(SourceUpdateStatus.needsRetrieval(null, null, RECENT));
+    }
+
+    @Test
+    public void sourceModifiedSinceItWasInstalledHasToBeRetrieved() {
+        assertTrue(SourceUpdateStatus.needsRetrieval(OLD, RECENT, RECENT));
+    }
+
+    @Test
+    public void sourceInstalledAfterItWasModifiedIsLeftAlone() {
+        assertFalse(SourceUpdateStatus.needsRetrieval(RECENT, OLD, RECENT));
+    }
+
+    /**
+     * An online date is unknown both when the server reports none and when the source could not be
+     * reached. Either way the source is not retrieved again until it goes stale, so a run that
+     * cannot reach anything does not decide that everything needs downloading.
+     */
+    @Test
+    public void sourceWithoutOnlineDateIsLeftAloneUntilItGoesStale() {
+        ZonedDateTime now = ZonedDateTime.parse("2026-07-01T00:00:00Z");
+
+        assertFalse(SourceUpdateStatus.needsRetrieval(now.minusDays(6), null, now));
+        assertTrue(SourceUpdateStatus.needsRetrieval(now.minusDays(8), null, now));
+    }
 }

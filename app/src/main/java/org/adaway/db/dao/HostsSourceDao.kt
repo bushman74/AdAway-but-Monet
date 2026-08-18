@@ -51,11 +51,16 @@ interface HostsSourceDao {
     @Query("UPDATE hosts_sources SET last_modified_online = :dateTime WHERE id = :id")
     fun updateOnlineModificationDate(id: Int, dateTime: ZonedDateTime?)
 
+    /**
+     * Record when a source was installed and, when it is known, when it was last modified online.
+     * The online date is unknown both for a source that reports none and for one that could not be
+     * reached, so it must stay nullable.
+     */
     @Query("UPDATE hosts_sources SET last_modified_local = :localModificationDate, last_modified_online = :onlineModificationDate WHERE id = :id")
     fun updateModificationDates(
         id: Int,
         localModificationDate: ZonedDateTime,
-        onlineModificationDate: ZonedDateTime
+        onlineModificationDate: ZonedDateTime?
     )
 
     @Query("UPDATE hosts_sources SET entityTag = :entityTag WHERE id = :id")

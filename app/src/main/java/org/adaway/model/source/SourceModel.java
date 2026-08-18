@@ -8,7 +8,6 @@ import static org.adaway.model.error.HostError.NO_CONNECTION;
 import static java.net.HttpURLConnection.HTTP_NOT_MODIFIED;
 import static java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME;
 import static java.time.format.FormatStyle.MEDIUM;
-import static java.time.temporal.ChronoUnit.WEEKS;
 import static java.util.Objects.requireNonNull;
 
 import android.content.ContentResolver;
@@ -184,6 +183,18 @@ public class SourceModel {
      * @throws HostErrorException If the hosts sources could not be checked.
      */
     public boolean checkForUpdate(SourceUpdateListener listener) throws HostErrorException {
+        return checkForUpdate(listener, new UpdateBudget());
+    }
+
+    /**
+     * Check if there is update available for hosts sources.
+     *
+     * @param listener The listener notified of the check progress.
+     * @param budget   What the run is allowed to spend before giving up.
+     * @throws HostErrorException If the hosts sources could not be checked.
+     */
+    public boolean checkForUpdate(SourceUpdateListener listener, UpdateBudget budget)
+            throws HostErrorException {
         // Check current connection
         if (isDeviceOffline()) {
             throw new HostErrorException(NO_CONNECTION);
@@ -200,8 +211,13 @@ public class SourceModel {
         // Update state
         setState(R.string.status_check);
         // Check each source
+        ZonedDateTime now = ZonedDateTime.now();
         int checkedSourceCount = 0;
         for (HostsSource source : sources) {
+            if (budget.exhausted()) {
+                Timber.w("Giving up checking the sources: the run has spent its budget.");
+                throw new HostErrorException(DOWNLOAD_FAILED);
+            }
             // Get URL and lastModified from db
             ZonedDateTime lastModifiedLocal = source.getLocalModificationDate();
             // Update state
@@ -213,18 +229,19 @@ public class SourceModel {
             // Some help with debug here
             Timber.d("lastModifiedLocal: %s", dateToString(lastModifiedLocal));
             Timber.d("lastModifiedOnline: %s", dateToString(lastModifiedOnline));
-            // Save last modified online
-            this.hostsSourceDao.updateOnlineModificationDate(source.getId(), lastModifiedOnline);
-            // Classify the source the same way the home screen counters do, so what is reported
-            // as outdated is exactly what pressing update acts on.
-            if (!SourceUpdateStatus.isUpToDate(lastModifiedLocal, lastModifiedOnline)) {
+            // The date is unknown both for a source reporting none and for one that could not be
+            // reached. Keep what was known rather than forgetting it over a connection that
+            // happened to fail, and decide on the best date available.
+            ZonedDateTime knownModifiedOnline = lastModifiedOnline;
+            if (lastModifiedOnline == null) {
+                knownModifiedOnline = source.getOnlineModificationDate();
+            } else {
+                this.hostsSourceDao.updateOnlineModificationDate(source.getId(), lastModifiedOnline);
+            }
+            // Classify the source the same way the retrieval does, so what is reported as
+            // outdated is exactly what pressing update acts on.
+            if (SourceUpdateStatus.needsRetrieval(lastModifiedLocal, knownModifiedOnline, now)) {
                 updateAvailable = true;
-            } else if (lastModifiedOnline == null) {
-                // The source reports no online date, so refresh it once a week regardless.
-                ZonedDateTime lastWeek = ZonedDateTime.now().minus(1, WEEKS);
-                if (lastModifiedLocal.isBefore(lastWeek)) {
-                    updateAvailable = true;
-                }
             }
         }
         // Update statuses
@@ -381,6 +398,18 @@ public class SourceModel {
      * @throws HostErrorException If the hosts sources could not be downloaded.
      */
     public void retrieveHostsSources(SourceUpdateListener listener) throws HostErrorException {
+        retrieveHostsSources(listener, new UpdateBudget());
+    }
+
+    /**
+     * Retrieve all hosts sources files to copy into a private local file.
+     *
+     * @param listener The listener notified of the retrieval progress.
+     * @param budget   What the run is allowed to spend before giving up.
+     * @throws HostErrorException If the hosts sources could not be downloaded.
+     */
+    public void retrieveHostsSources(SourceUpdateListener listener, UpdateBudget budget)
+            throws HostErrorException {
         // Check connection status
         if (isDeviceOffline()) {
             throw new HostErrorException(NO_CONNECTION);
@@ -405,14 +434,25 @@ public class SourceModel {
                 this.hostsSourceDao.clearProperties(sourceId);
                 continue;
             }
+            if (budget.exhausted()) {
+                Timber.w("Giving up checking the sources: the run has spent its budget.");
+                break;
+            }
             setState(R.string.status_check_source, source.getLabel());
             ZonedDateTime onlineModificationDate = getHostsSourceLastUpdate(source);
             if (onlineModificationDate == null) {
-                onlineModificationDate = now;
+                // Unknown, either because the source reports no date or because it could not be
+                // reached. Standing in the current time here would mark every source outdated
+                // whenever the connection fails, and download the lot. The two cannot be told
+                // apart, so this does not count as a failure either: only a download that throws
+                // says for certain that the connection is unusable.
+                onlineModificationDate = source.getOnlineModificationDate();
             }
-            onlineModificationDates.put(sourceId, onlineModificationDate);
+            if (onlineModificationDate != null) {
+                onlineModificationDates.put(sourceId, onlineModificationDate);
+            }
             ZonedDateTime localModificationDate = source.getLocalModificationDate();
-            if (localModificationDate != null && localModificationDate.isAfter(onlineModificationDate)) {
+            if (!SourceUpdateStatus.needsRetrieval(localModificationDate, onlineModificationDate, now)) {
                 Timber.i("Skip source %s: no update.", source.getLabel());
                 continue;
             }
@@ -422,7 +462,13 @@ public class SourceModel {
         int completedSourceCount = 0;
         // Second pass: retrieve the outdated sources
         for (HostsSource source : outdatedSources) {
+            if (budget.exhausted()) {
+                Timber.w("Giving up retrieving the sources: the run has spent its budget.");
+                break;
+            }
             int sourceId = source.getId();
+            // Unknown for a source that could not be checked, which is retrieved anyway once it
+            // goes stale; its local date then stands in as the date of the copy on the device.
             ZonedDateTime onlineModificationDate = onlineModificationDates.get(sourceId);
             listener.onSourceUpdateStarted(completedSourceCount, outdatedSourceCount, source.getLabel());
             completedSourceCount++;
@@ -442,14 +488,18 @@ public class SourceModel {
                 }
                 // Update local and online modification dates to now
                 ZonedDateTime localModificationDate =
-                        onlineModificationDate.isAfter(now) ? onlineModificationDate : now;
+                        onlineModificationDate != null && onlineModificationDate.isAfter(now)
+                                ? onlineModificationDate
+                                : now;
                 this.hostsSourceDao.updateModificationDates(sourceId, localModificationDate, onlineModificationDate);
                 // Update size
                 this.hostsSourceDao.updateSize(sourceId);
+                budget.recordSuccess();
             } catch (IOException e) {
                 Timber.w(e, "Failed to retrieve host source %s.", source.getUrl());
                 // Increment number of failed copy
                 numberOfFailedCopies++;
+                budget.recordFailure();
             }
         }
         // Check if all copies failed
