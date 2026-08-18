@@ -42,7 +42,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -323,23 +322,12 @@ private fun HomeScreen(
                     contentColor = MaterialTheme.colorScheme.primary,
                     tonalElevation = 0.dp,
                     actions = {
+                        // Checking the sources and opening the recorded requests are both on the
+                        // screen behind this bar, so the bar only opens the menu.
                         IconButton(onClick = onOpenDrawer) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_menu_24dp),
                                 contentDescription = stringResource(R.string.open_drawer_button_description)
-                            )
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
-                        IconButton(onClick = onCheckSources) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_sync_24dp),
-                                contentDescription = stringResource(R.string.update_button)
-                            )
-                        }
-                        IconButton(onClick = onOpenLog) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_playlist_add_24dp),
-                                contentDescription = stringResource(R.string.show_log_button)
                             )
                         }
                     },
@@ -464,37 +452,9 @@ private fun HomeScreen(
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 tonalElevation = 0.dp
             ) {
+                // The sources, the lists and the recorded requests are all reached from the
+                // screen itself, so the menu carries only what is not on it.
                 Column(modifier = Modifier.padding(bottom = 48.dp, top = 8.dp)) {
-                    HomeDrawerItem(
-                        label = stringResource(R.string.hosts_title),
-                        iconRes = R.drawable.ic_collections_bookmark_24dp,
-                        onClick = { 
-                            onCloseDrawer()
-                            onOpenSources() 
-                        }
-                    )
-                    HomeDrawerItem(
-                        label = stringResource(R.string.shortcut_your_lists),
-                        iconRes = R.drawable.ic_list_red,
-                        onClick = { 
-                            onCloseDrawer()
-                            onOpenBlockedList() 
-                        }
-                    )
-                    HomeDrawerItem(
-                        label = stringResource(R.string.log_label),
-                        iconRes = R.drawable.ic_outline_rule_24,
-                        onClick = { 
-                            onCloseDrawer()
-                            onOpenLog() 
-                        }
-                    )
-                    
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
-                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 24.dp)
-                    )
-                    
                     HomeDrawerItem(
                         label = stringResource(R.string.preferences_drawer_item),
                         iconRes = R.drawable.ic_settings_24dp,
