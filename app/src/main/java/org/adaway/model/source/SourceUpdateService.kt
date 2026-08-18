@@ -47,6 +47,22 @@ object SourceUpdateService {
     const val KEY_ERROR = "error"
 
     /**
+     * Published while running: the number of sources already dealt with, how many there are, and
+     * whether they are being checked or retrieved. The screen shows what the run is doing rather
+     * than the summary it had before the run started.
+     */
+    const val KEY_PROGRESS_COMPLETED = "progressCompleted"
+    const val KEY_PROGRESS_TOTAL = "progressTotal"
+    const val KEY_PROGRESS_RETRIEVING = "progressRetrieving"
+
+    /**
+     * How many times a scheduled update is retried before it is left for the next schedule.
+     * Without a limit, an update that cannot reach anything is retried for as long as the
+     * connection stays bad.
+     */
+    private const val MAX_RUN_ATTEMPTS = 3
+
+    /**
      * The intervals offered to the user, in hours.
      */
     @JvmField
@@ -160,25 +176,33 @@ object SourceUpdateService {
             Timber.i("Starting update worker")
             val application = applicationContext as AdAwayApplication
             val model = application.sourceModel
+            // One budget for the whole run, so the check and the retrieval share it and the run
+            // ends on its own terms rather than being killed part way through and started again.
+            val budget = UpdateBudget()
             val hasUpdate = try {
                 ProgressNotifications.report(
                     application, ProgressNotifications.Kind.UPDATE_HOSTS, null, null, false
                 )
-                model.checkForUpdate { completed, total, _ ->
+                model.checkForUpdate({ completed, total, _ ->
+                    publishProgress(completed, total, false)
                     reportProgress(
                         application, completed, total,
                         R.string.notification_update_host_progress_check
                     )
-                }
+                }, budget)
             } catch (exception: HostErrorException) {
-                Timber.e(exception, "Failed to check for update. Will retry later.")
                 ProgressNotifications.done(application, ProgressNotifications.Kind.UPDATE_HOSTS)
+                if (runAttemptCount + 1 >= MAX_RUN_ATTEMPTS) {
+                    Timber.e(exception, "Failed to check for update. Leaving it to the schedule.")
+                    return Result.failure()
+                }
+                Timber.e(exception, "Failed to check for update. Will retry later.")
                 return Result.retry()
             }
 
             if (hasUpdate) {
                 return try {
-                    doUpdate(application)
+                    doUpdate(application, budget)
                     Result.success()
                 } catch (exception: HostErrorException) {
                     Timber.e(exception, "Failed to apply hosts file during background update.")
@@ -209,15 +233,16 @@ object SourceUpdateService {
         }
 
         @Throws(HostErrorException::class)
-        private fun doUpdate(application: AdAwayApplication) {
+        private fun doUpdate(application: AdAwayApplication, budget: UpdateBudget) {
             if (PreferenceHelper.getAutomaticUpdateDaily(application)) {
                 try {
-                    application.sourceModel.retrieveHostsSources { completed, total, _ ->
+                    application.sourceModel.retrieveHostsSources({ completed, total, _ ->
+                        publishProgress(completed, total, true)
                         reportProgress(
                             application, completed, total,
                             R.string.notification_update_host_progress_source
                         )
-                    }
+                    }, budget)
                     ProgressNotifications.report(
                         application,
                         ProgressNotifications.Kind.UPDATE_HOSTS,
@@ -250,23 +275,28 @@ object SourceUpdateService {
         override fun doWork(): Result {
             val application = applicationContext as AdAwayApplication
             val skipCheck = inputData.getBoolean(KEY_SKIP_CHECK, false)
+            // One budget for the whole run, so an update that cannot reach its sources ends by
+            // itself instead of outliving what the system allows and being started over.
+            val budget = UpdateBudget()
             ProgressNotifications.report(
                 application, ProgressNotifications.Kind.UPDATE_HOSTS, null
             )
             return try {
                 if (!skipCheck) {
-                    val hasUpdate = application.sourceModel.checkForUpdate { completed, total, _ ->
+                    val hasUpdate = application.sourceModel.checkForUpdate({ completed, total, _ ->
+                        publishProgress(completed, total, false)
                         report(application, completed, total, R.string.notification_update_host_progress_check)
-                    }
+                    }, budget)
                     if (!hasUpdate) {
                         return Result.success(
                             Data.Builder().putBoolean(KEY_UP_TO_DATE, true).build()
                         )
                     }
                 }
-                application.sourceModel.retrieveHostsSources { completed, total, _ ->
+                application.sourceModel.retrieveHostsSources({ completed, total, _ ->
+                    publishProgress(completed, total, true)
                     report(application, completed, total, R.string.notification_update_host_progress_source)
-                }
+                }, budget)
                 ProgressNotifications.report(
                     application,
                     ProgressNotifications.Kind.UPDATE_HOSTS,
@@ -297,4 +327,18 @@ object SourceUpdateService {
             )
         }
     }
+}
+
+/**
+ * Publish what the run is doing, so a screen watching the work can say which source it is on
+ * rather than showing the summary it had before the run started.
+ */
+private fun Worker.publishProgress(completed: Int, total: Int, retrieving: Boolean) {
+    setProgressAsync(
+        Data.Builder()
+            .putInt(SourceUpdateService.KEY_PROGRESS_COMPLETED, completed)
+            .putInt(SourceUpdateService.KEY_PROGRESS_TOTAL, total)
+            .putBoolean(SourceUpdateService.KEY_PROGRESS_RETRIEVING, retrieving)
+            .build()
+    )
 }
