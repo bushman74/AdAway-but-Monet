@@ -1,11 +1,10 @@
 name: Android CI
 
 on:
+  # Every branch is built, so work in progress is checked where it is written rather than only
+  # once it reaches master. Runs for a branch replace one another, see below.
   push:
-    branches:
-      - master
-      # Temporary: build this branch too. Remove before merging.
-      - optimisation
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
