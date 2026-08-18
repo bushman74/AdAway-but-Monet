@@ -201,11 +201,34 @@ private data class HomeScreenState(
     val outdatedSourceCount: Int = 0,
     val pending: Boolean = false,
     val allSourcesUpToDate: Boolean = false,
+    /**
+     * How far a running update has got, or `null` when none is running.
+     */
+    val updateProgress: UpdateProgress? = null,
     val stateText: String = "",
     val adBlocked: Boolean = false,
     val drawerVisible: Boolean = false
 ) {
     val totalSourceCount: Int get() = upToDateSourceCount + outdatedSourceCount
+
+    /**
+     * What the source summary line has to say at the moment.
+     */
+    fun summary(): SourceSummary = when {
+        allSourcesUpToDate -> SourceSummary.CONFIRMATION
+        updateProgress != null -> SourceSummary.PROGRESS
+        else -> SourceSummary.COUNTS
+    }
+}
+
+/**
+ * The three things the source summary line says: that everything is up to date, how far the
+ * running update has got, or how the sources stand.
+ */
+internal enum class SourceSummary {
+    CONFIRMATION,
+    PROGRESS,
+    COUNTS
 }
 
 @Composable
@@ -232,6 +255,7 @@ internal fun HomeRoute(
     val outdatedSourceCount by viewModel.outdatedSourceCount.collectAsStateWithLifecycle()
     val allSourcesUpToDate by viewModel.allSourcesUpToDate.collectAsStateWithLifecycle()
     val pending by viewModel.pending.collectAsStateWithLifecycle()
+    val updateProgress by viewModel.updateProgress.collectAsStateWithLifecycle()
     val stateText by viewModel.state.collectAsStateWithLifecycle()
     var drawerVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -249,6 +273,7 @@ internal fun HomeRoute(
         outdatedSourceCount,
         allSourcesUpToDate,
         pending,
+        updateProgress,
         stateText,
         adBlocked,
         drawerVisible
@@ -263,6 +288,7 @@ internal fun HomeRoute(
             outdatedSourceCount = outdatedSourceCount,
             allSourcesUpToDate = allSourcesUpToDate,
             pending = pending,
+            updateProgress = updateProgress,
             stateText = stateText.orEmpty(),
             adBlocked = adBlocked,
             drawerVisible = drawerVisible
@@ -758,16 +784,18 @@ private fun SourceStatusSection(
                     // A finished check that found nothing is confirmed for a moment, then the
                     // summary returns to its usual content.
                     AnimatedContent(
-                        targetState = state.allSourcesUpToDate,
+                        targetState = state.summary(),
                         transitionSpec = {
                             (fadeIn(animationSpec = tween(400)) +
                                     slideInVertically(animationSpec = tween(400)) { it / 3 })
                                 .togetherWith(fadeOut(animationSpec = tween(300)))
                         },
                         label = "sourceSummaryTransition"
-                    ) { confirming ->
-                        if (confirming) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                    ) { summary ->
+                        when (summary) {
+                            SourceSummary.CONFIRMATION -> Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     painter = painterResource(R.drawable.baseline_check_24),
                                     contentDescription = null,
@@ -782,8 +810,31 @@ private fun SourceStatusSection(
                                     color = colorResource(R.color.allowed)
                                 )
                             }
-                        } else {
-                            Column {
+
+                            // While the update runs, say what it is doing rather than repeating
+                            // the state the sources were in before it started.
+                            SourceSummary.PROGRESS -> {
+                                val progress = state.updateProgress
+                                Text(
+                                    text = if (progress == null) {
+                                        ""
+                                    } else {
+                                        stringResource(
+                                            if (progress.retrieving) {
+                                                R.string.updating_source_progress
+                                            } else {
+                                                R.string.checking_source_progress
+                                            },
+                                            progress.completed,
+                                            progress.total
+                                        )
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            SourceSummary.COUNTS -> Column {
                                 Text(
                                     text = stringResource(
                                         R.string.up_to_date_source_ratio_label,

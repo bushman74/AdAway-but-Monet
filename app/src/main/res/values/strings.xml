@@ -261,6 +261,8 @@
 
     <string name="tile_dns_recording_label">DNS recording</string>
     <string name="up_to_date_source_ratio_label">%1$d of %2$d sources up to date</string>
+    <string name="checking_source_progress">Checking source %1$d of %2$d…</string>
+    <string name="updating_source_progress">Updating source %1$d of %2$d…</string>
     <string name="dns_recording_error_title">DNS recording could not start</string>
     <string name="dns_recording_error_no_root">Root access was not granted to AdAway.</string>
     <string name="dns_recording_error_missing">The capture program is missing from the installation: %1$s</string>

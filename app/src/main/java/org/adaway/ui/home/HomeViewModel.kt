@@ -39,6 +39,19 @@ import org.adaway.vpn.VpnStatusRepository
 import timber.log.Timber
 
 /**
+ * How far the running update has got.
+ *
+ * @property completed The source being dealt with, counting from one.
+ * @property total How many sources the run covers.
+ * @property retrieving Whether the sources are being retrieved rather than checked.
+ */
+data class UpdateProgress(
+    val completed: Int,
+    val total: Int,
+    val retrieving: Boolean
+)
+
+/**
  * This class is an [AndroidViewModel] for the [HomeActivity] cards.
  *
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
@@ -62,11 +75,42 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         .asFlow()
         .map { infos -> infos.firstOrNull() }
 
+    /**
+     * Whether something is running right now.
+     *
+     * Only work that is actually running counts. Work that is merely waiting, for its turn or for
+     * a retry, used to count too, and since stopping the application leaves its work enqueued, the
+     * screen came back showing a progress bar for an update that was not running at all.
+     */
     val pending: StateFlow<Boolean> = combine(
         _pending,
-        manualUpdate.map { it?.state?.isFinished == false }
+        manualUpdate.map { it?.state == WorkInfo.State.RUNNING }
     ) { local, updating -> local || updating }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_STOP_TIMEOUT_MILLIS), false)
+
+    /**
+     * What the running update is doing, or `null` when nothing is running.
+     */
+    val updateProgress: StateFlow<UpdateProgress?> = manualUpdate
+        .map { info ->
+            if (info?.state != WorkInfo.State.RUNNING) {
+                return@map null
+            }
+            val total = info.progress.getInt(SourceUpdateService.KEY_PROGRESS_TOTAL, 0)
+            if (total <= 0) {
+                return@map null
+            }
+            UpdateProgress(
+                // The listener reports how many are done, the screen counts the one in hand.
+                completed = (info.progress.getInt(SourceUpdateService.KEY_PROGRESS_COMPLETED, 0) + 1)
+                    .coerceAtMost(total),
+                total = total,
+                retrieving = info.progress.getBoolean(
+                    SourceUpdateService.KEY_PROGRESS_RETRIEVING, false
+                )
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_STOP_TIMEOUT_MILLIS), null)
 
     private val _error = MutableSharedFlow<HostError>()
     val error: SharedFlow<HostError> = _error
