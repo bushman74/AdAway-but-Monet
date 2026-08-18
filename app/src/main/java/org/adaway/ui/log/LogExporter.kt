@@ -47,9 +47,14 @@ object LogExporter {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
     /**
+     * The width of a written time, as many characters as the format above writes.
+     */
+    private const val TIME_WIDTH = 19
+
+    /**
      * The column standing in for the time of a request recorded without one.
      */
-    private const val NO_TIME = "-".repeat(19)
+    private val NO_TIME = "-".repeat(TIME_WIDTH)
 
     /**
      * The column standing in for the type of a host that is not listed.
