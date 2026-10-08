@@ -51,6 +51,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -60,6 +61,7 @@ import org.adaway.R
 import org.adaway.db.entity.HostListItem
 import org.adaway.db.entity.HostsSource
 import org.adaway.db.entity.ListType
+import org.adaway.db.entity.ListedHost
 import org.adaway.ui.adblocking.ApplyConfigurationSnackbar
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
 import org.adaway.ui.compose.ExpressiveAsymmetricShape2
@@ -132,6 +134,7 @@ private fun ListsScreen(
     val blockedItems = viewModel.blockedListItems.collectAsLazyPagingItems()
     val allowedItems = viewModel.allowedListItems.collectAsLazyPagingItems()
     val redirectedItems = viewModel.redirectedListItems.collectAsLazyPagingItems()
+    val sourceLabels by viewModel.sourceLabels.collectAsStateWithLifecycle()
 
     var dialogState by remember { mutableStateOf<ListDialogState?>(null) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -232,6 +235,7 @@ private fun ListsScreen(
                     ListsTab.BLOCKED -> {
                         HostsListPage(
                             pagingItems = blockedItems,
+                            sourceLabels = sourceLabels,
                             showRedirection = false,
                             onToggleItemEnabled = onToggleItemEnabled,
                             onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.BLOCKED, item) },
@@ -243,6 +247,7 @@ private fun ListsScreen(
                     ListsTab.ALLOWED -> {
                         HostsListPage(
                             pagingItems = allowedItems,
+                            sourceLabels = sourceLabels,
                             showRedirection = false,
                             onToggleItemEnabled = onToggleItemEnabled,
                             onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.ALLOWED, item) },
@@ -254,6 +259,7 @@ private fun ListsScreen(
                     ListsTab.REDIRECTED -> {
                         HostsListPage(
                             pagingItems = redirectedItems,
+                            sourceLabels = sourceLabels,
                             showRedirection = true,
                             onToggleItemEnabled = onToggleItemEnabled,
                             onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.REDIRECTED, item) },
@@ -311,7 +317,8 @@ private fun ListsBottomNavigation(
 
 @Composable
 private fun HostsListPage(
-    pagingItems: LazyPagingItems<HostListItem>,
+    pagingItems: LazyPagingItems<ListedHost>,
+    sourceLabels: Map<Int, String>,
     showRedirection: Boolean,
     onToggleItemEnabled: (HostListItem) -> Unit,
     onEditItem: (HostListItem) -> Unit,
@@ -363,7 +370,7 @@ private fun HostsListPage(
                 items(
                     count = pagingItems.itemCount,
                     key = { index ->
-                        val item = pagingItems[index]
+                        val item = pagingItems[index]?.item
                         if (item == null) {
                             index
                         } else {
@@ -371,13 +378,18 @@ private fun HostsListPage(
                         }
                     }
                 ) { index ->
-                    val item = pagingItems[index] ?: return@items
+                    val listedHost = pagingItems[index] ?: return@items
+                    val item = listedHost.item
+                    val labels = remember(listedHost.sourceIds, sourceLabels) {
+                        sourceLabelsOf(listedHost.sourceIds, sourceLabels)
+                    }
                     HostListRow(
                         host = item.host,
                         redirection = item.redirection,
                         type = item.type,
                         enabled = item.isEnabled,
                         editable = item.sourceId == HostsSource.USER_SOURCE_ID,
+                        sourceLabels = labels,
                         showRedirection = showRedirection,
                         shape = if (index % 2 == 0) ExpressiveAsymmetricShape1 else ExpressiveAsymmetricShape2,
                         onToggle = { onToggleItemEnabled(item) },
@@ -411,6 +423,7 @@ private fun HostListRow(
     type: ListType,
     enabled: Boolean,
     editable: Boolean,
+    sourceLabels: List<String>,
     showRedirection: Boolean,
     shape: Shape,
     onToggle: () -> Unit,
@@ -487,6 +500,12 @@ private fun HostListRow(
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
+                    if (sourceLabels.isNotEmpty()) {
+                        SourceTags(
+                            labels = sourceLabels,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
                 }
             }
         }
@@ -512,6 +531,54 @@ private fun HostListRow(
         }
     }
 }
+
+/**
+ * The sources listing a host, as small tags under its name. A host listed by many sources would
+ * otherwise need several lines, so only the first few are named and the rest are counted.
+ */
+@Composable
+private fun SourceTags(
+    labels: List<String>,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        labels.take(MAX_NAMED_SOURCES).forEach { label ->
+            // Long names shrink and end with an ellipsis, so the count after them stays visible.
+            SourceTag(text = label, modifier = Modifier.weight(1f, fill = false))
+        }
+        val unnamed = labels.size - MAX_NAMED_SOURCES
+        if (unnamed > 0) {
+            SourceTag(text = "+$unnamed")
+        }
+    }
+}
+
+@Composable
+private fun SourceTag(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * How many sources are named under a host before the rest are only counted.
+ */
+private const val MAX_NAMED_SOURCES = 2
 
 @Composable
 private fun HostListDialog(

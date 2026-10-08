@@ -2,6 +2,7 @@ package org.adaway.ui.lists
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -9,12 +10,14 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import org.adaway.db.AppDatabase
 import org.adaway.db.dao.HostListItemDao
+import org.adaway.db.dao.HostsSourceDao
 import org.adaway.db.entity.HostListItem
 import org.adaway.db.entity.HostsSource.USER_SOURCE_ID
 import org.adaway.db.entity.ListType
 import org.adaway.db.entity.ListType.ALLOWED
 import org.adaway.db.entity.ListType.BLOCKED
 import org.adaway.db.entity.ListType.REDIRECTED
+import org.adaway.db.entity.ListedHost
 import org.adaway.ui.lists.ListsFilter.ALL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -22,14 +25,28 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ListsViewModel(application: Application) : AndroidViewModel(application) {
     private val hostListItemDao: HostListItemDao = AppDatabase.getInstance(application).hostsListItemDao()
+    private val hostsSourceDao: HostsSourceDao = AppDatabase.getInstance(application).hostsSourceDao()
     private val filter = MutableStateFlow(ALL)
+
+    /**
+     * The name of each source by its id, to label every host with the sources listing it.
+     * The user's source is not included, so the hosts the user added keep their usual look.
+     */
+    val sourceLabels: StateFlow<Map<Int, String>> = hostsSourceDao.loadAll().asFlow()
+        .map { sources -> sources.associate { it.id to it.label } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /**
      * Placeholders are disabled deliberately. Room counts the whole result set on every load to
      * size them, and counting a grouped query over millions of rows had to finish before the first
@@ -41,19 +58,19 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
         enablePlaceholders = false
     )
 
-    val blockedListItems: Flow<PagingData<HostListItem>> = filter.flatMapLatest { currentFilter ->
+    val blockedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
         Pager(pagingConfig) {
             hostListItemDao.loadList(BLOCKED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
         }.flow
     }.cachedIn(viewModelScope)
 
-    val allowedListItems: Flow<PagingData<HostListItem>> = filter.flatMapLatest { currentFilter ->
+    val allowedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
         Pager(pagingConfig) {
             hostListItemDao.loadList(ALLOWED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
         }.flow
     }.cachedIn(viewModelScope)
 
-    val redirectedListItems: Flow<PagingData<HostListItem>> = filter.flatMapLatest { currentFilter ->
+    val redirectedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
         Pager(pagingConfig) {
             hostListItemDao.loadList(REDIRECTED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
         }.flow

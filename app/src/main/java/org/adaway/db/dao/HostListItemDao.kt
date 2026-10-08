@@ -9,6 +9,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import org.adaway.db.entity.HostListItem
+import org.adaway.db.entity.ListedHost
 import java.util.Optional
 
 @Dao
@@ -28,8 +29,15 @@ interface HostListItemDao {
     @Query("DELETE FROM hosts_lists WHERE source_id = 1 AND host = :host")
     fun deleteUserFromHost(host: String)
 
-    @Query("SELECT * FROM hosts_lists WHERE type = :type AND host LIKE :query AND ((:includeSources == 0 AND source_id == 1) || (:includeSources == 1)) GROUP BY host ORDER BY host ASC")
-    fun loadList(type: Int, includeSources: Boolean, query: String): PagingSource<Int, HostListItem>
+    /**
+     * Load one list, each host once, with the ids of every source that lists it.
+     *
+     * With a single min() in a grouped query, SQLite takes the other columns from the row holding
+     * the minimum. The user's source has the lowest id, so a host the user added is always shown
+     * as the user's own row, which stays editable, even when a source lists it too.
+     */
+    @Query("SELECT id, host, type, enabled, redirection, MIN(source_id) AS source_id, GROUP_CONCAT(DISTINCT source_id) AS source_ids FROM hosts_lists WHERE type = :type AND host LIKE :query AND ((:includeSources == 0 AND source_id == 1) || (:includeSources == 1)) GROUP BY host ORDER BY host ASC")
+    fun loadList(type: Int, includeSources: Boolean, query: String): PagingSource<Int, ListedHost>
 
     @get:Query("SELECT * FROM hosts_lists ORDER BY host ASC")
     val all: List<HostListItem>
