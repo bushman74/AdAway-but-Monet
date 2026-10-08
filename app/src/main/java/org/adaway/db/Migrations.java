@@ -140,4 +140,15 @@ final class Migrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS `index_hosts_lists_type_host` ON `hosts_lists` (`type`, `host`)");
         }
     };
+
+    /**
+     * Migration script from v9 to v10.
+     */
+    static final Migration MIGRATION_9_10 = new Migration(9, 10) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("DROP INDEX IF EXISTS `index_hosts_lists_source_id`");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_hosts_lists_source_id_type_host` ON `hosts_lists` (`source_id`, `type`, `host`)");
+        }
+    };
 }

@@ -20,7 +20,10 @@ import static androidx.room.ForeignKey.CASCADE;
         tableName = "hosts_lists",
         indices = {
                 @Index(value = "host"),
-                @Index(value = "source_id"),
+                // Serves filtering the list screen by source: one source's hosts of one type, in
+                // host order, are read straight from it. It also covers every lookup by source
+                // alone, which used to have an index of its own.
+                @Index(value = {"source_id", "type", "host"}),
                 // Serves the list screen: filtering on type and ordering by host in one index
                 // avoids sorting and grouping the whole table before the first page is shown.
                 @Index(value = {"type", "host"})

@@ -15,6 +15,7 @@ import org.adaway.db.Migrations.MIGRATION_5_6
 import org.adaway.db.Migrations.MIGRATION_6_7
 import org.adaway.db.Migrations.MIGRATION_7_8
 import org.adaway.db.Migrations.MIGRATION_8_9
+import org.adaway.db.Migrations.MIGRATION_9_10
 import org.adaway.db.converter.ListTypeConverter
 import org.adaway.db.converter.ZonedDateTimeConverter
 import org.adaway.db.dao.HostEntryDao
@@ -31,7 +32,7 @@ import org.adaway.util.CoroutineDispatchers
 
 @Database(
     entities = [HostsSource::class, HostListItem::class, HostEntry::class, Metadata::class],
-    version = 9
+    version = 10
 )
 @TypeConverters(ListTypeConverter::class, ZonedDateTimeConverter::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -72,7 +73,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build()
                     .also { instance = it }
