@@ -15,12 +15,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
@@ -131,9 +138,9 @@ private fun ListsScreen(
         pageCount = { ListsTab.entries.size }
     )
 
-    val blockedItems = viewModel.blockedListItems.collectAsLazyPagingItems()
-    val allowedItems = viewModel.allowedListItems.collectAsLazyPagingItems()
-    val redirectedItems = viewModel.redirectedListItems.collectAsLazyPagingItems()
+    val blockedItems = viewModel.blocked.items.collectAsLazyPagingItems()
+    val allowedItems = viewModel.allowed.items.collectAsLazyPagingItems()
+    val redirectedItems = viewModel.redirected.items.collectAsLazyPagingItems()
     val sourceLabels by viewModel.sourceLabels.collectAsStateWithLifecycle()
 
     var dialogState by remember { mutableStateOf<ListDialogState?>(null) }
@@ -231,42 +238,43 @@ private fun ListsScreen(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                when (ListsTab.fromPosition(page)) {
-                    ListsTab.BLOCKED -> {
-                        HostsListPage(
-                            pagingItems = blockedItems,
-                            sourceLabels = sourceLabels,
-                            showRedirection = false,
-                            onToggleItemEnabled = onToggleItemEnabled,
-                            onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.BLOCKED, item) },
-                            onDeleteItem = onDeleteItem,
-                            onCopyHost = { host -> Clipboard.copyHostToClipboard(context, host) }
-                        )
-                    }
+                val tab = ListsTab.fromPosition(page)
+                val listPage = when (tab) {
+                    ListsTab.BLOCKED -> viewModel.blocked
+                    ListsTab.ALLOWED -> viewModel.allowed
+                    ListsTab.REDIRECTED -> viewModel.redirected
+                }
+                val pagingItems = when (tab) {
+                    ListsTab.BLOCKED -> blockedItems
+                    ListsTab.ALLOWED -> allowedItems
+                    ListsTab.REDIRECTED -> redirectedItems
+                }
+                val sources by listPage.sources.collectAsStateWithLifecycle()
+                val selectedSource by listPage.selectedSource.collectAsStateWithLifecycle()
+                val listState = rememberLazyListState()
 
-                    ListsTab.ALLOWED -> {
-                        HostsListPage(
-                            pagingItems = allowedItems,
-                            sourceLabels = sourceLabels,
-                            showRedirection = false,
-                            onToggleItemEnabled = onToggleItemEnabled,
-                            onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.ALLOWED, item) },
-                            onDeleteItem = onDeleteItem,
-                            onCopyHost = { host -> Clipboard.copyHostToClipboard(context, host) }
-                        )
-                    }
-
-                    ListsTab.REDIRECTED -> {
-                        HostsListPage(
-                            pagingItems = redirectedItems,
-                            sourceLabels = sourceLabels,
-                            showRedirection = true,
-                            onToggleItemEnabled = onToggleItemEnabled,
-                            onEditItem = { item -> dialogState = ListDialogState.forEdit(ListsTab.REDIRECTED, item) },
-                            onDeleteItem = onDeleteItem,
-                            onCopyHost = { host -> Clipboard.copyHostToClipboard(context, host) }
-                        )
-                    }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SourceFilterRow(
+                        sources = sources,
+                        selectedSource = selectedSource,
+                        onSourceSelected = { sourceId ->
+                            listPage.selectSource(sourceId)
+                            // Another source shows other hosts, so start them from the top rather
+                            // than at the position reached in the previous one.
+                            scope.launch { listState.scrollToItem(0) }
+                        }
+                    )
+                    HostsListPage(
+                        pagingItems = pagingItems,
+                        listState = listState,
+                        sourceLabels = sourceLabels,
+                        showRedirection = tab == ListsTab.REDIRECTED,
+                        onToggleItemEnabled = onToggleItemEnabled,
+                        onEditItem = { item -> dialogState = ListDialogState.forEdit(tab, item) },
+                        onDeleteItem = onDeleteItem,
+                        onCopyHost = { host -> Clipboard.copyHostToClipboard(context, host) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -315,26 +323,102 @@ private fun ListsBottomNavigation(
     }
 }
 
+/**
+ * The filters above a list: every source, the hosts the user added, then each source listing hosts
+ * in this list. Choosing the selected filter again goes back to every source.
+ */
+@Composable
+private fun SourceFilterRow(
+    sources: List<HostsSource>,
+    selectedSource: Int?,
+    onSourceSelected: (Int?) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item(key = "all") {
+            SourceFilterChip(
+                label = stringResource(R.string.lists_filter_all),
+                selected = selectedSource == null,
+                onClick = { onSourceSelected(null) }
+            )
+        }
+        item(key = "personal") {
+            val selected = selectedSource == HostsSource.USER_SOURCE_ID
+            SourceFilterChip(
+                label = stringResource(R.string.lists_filter_personal),
+                selected = selected,
+                onClick = { onSourceSelected(if (selected) null else HostsSource.USER_SOURCE_ID) }
+            )
+        }
+        items(items = sources, key = { source -> source.id }) { source ->
+            val selected = selectedSource == source.id
+            SourceFilterChip(
+                label = source.label,
+                selected = selected,
+                onClick = { onSourceSelected(if (selected) null else source.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 200.dp)
+            )
+        },
+        leadingIcon = if (selected) {
+            {
+                Icon(
+                    painter = painterResource(R.drawable.baseline_check_24),
+                    contentDescription = null,
+                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                )
+            }
+        } else {
+            null
+        }
+    )
+}
+
 @Composable
 private fun HostsListPage(
     pagingItems: LazyPagingItems<ListedHost>,
+    listState: LazyListState,
     sourceLabels: Map<Int, String>,
     showRedirection: Boolean,
     onToggleItemEnabled: (HostListItem) -> Unit,
     onEditItem: (HostListItem) -> Unit,
     onDeleteItem: (HostListItem) -> Unit,
-    onCopyHost: (String) -> Unit
+    onCopyHost: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val refreshState = pagingItems.loadState.refresh
     when {
         refreshState is LoadState.Loading && pagingItems.itemCount == 0 -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         }
 
         refreshState is LoadState.NotLoading && pagingItems.itemCount == 0 -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = stringResource(R.string.lists_empty),
                     style = MaterialTheme.typography.bodyLarge,
@@ -345,7 +429,8 @@ private fun HostsListPage(
 
         else -> {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {

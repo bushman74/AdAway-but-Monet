@@ -36,8 +36,17 @@ interface HostListItemDao {
      * the minimum. The user's source has the lowest id, so a host the user added is always shown
      * as the user's own row, which stays editable, even when a source lists it too.
      */
-    @Query("SELECT id, host, type, enabled, redirection, MIN(source_id) AS source_id, GROUP_CONCAT(DISTINCT source_id) AS source_ids FROM hosts_lists WHERE type = :type AND host LIKE :query AND ((:includeSources == 0 AND source_id == 1) || (:includeSources == 1)) GROUP BY host ORDER BY host ASC")
-    fun loadList(type: Int, includeSources: Boolean, query: String): PagingSource<Int, ListedHost>
+    @Query("SELECT id, host, type, enabled, redirection, MIN(source_id) AS source_id, GROUP_CONCAT(DISTINCT source_id) AS source_ids FROM hosts_lists WHERE type = :type AND host LIKE :query GROUP BY host ORDER BY host ASC")
+    fun loadList(type: Int, query: String): PagingSource<Int, ListedHost>
+
+    /**
+     * Load the hosts one source lists, each once, with the ids of every source that lists it.
+     *
+     * The source, type and host index returns them in host order without a sort. Each host's
+     * sources are then looked up by type and host, so the other sources listing it are named too.
+     */
+    @Query("SELECT id, host, type, enabled, redirection, source_id, (SELECT GROUP_CONCAT(DISTINCT other.source_id) FROM hosts_lists AS other WHERE other.type = :type AND other.host = hosts_lists.host) AS source_ids FROM hosts_lists WHERE source_id = :sourceId AND type = :type AND host LIKE :query GROUP BY host ORDER BY host ASC")
+    fun loadSourceList(type: Int, sourceId: Int, query: String): PagingSource<Int, ListedHost>
 
     @get:Query("SELECT * FROM hosts_lists ORDER BY host ASC")
     val all: List<HostListItem>

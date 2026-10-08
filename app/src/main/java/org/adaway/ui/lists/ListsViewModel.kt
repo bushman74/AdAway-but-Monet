@@ -12,6 +12,7 @@ import org.adaway.db.AppDatabase
 import org.adaway.db.dao.HostListItemDao
 import org.adaway.db.dao.HostsSourceDao
 import org.adaway.db.entity.HostListItem
+import org.adaway.db.entity.HostsSource
 import org.adaway.db.entity.HostsSource.USER_SOURCE_ID
 import org.adaway.db.entity.ListType
 import org.adaway.db.entity.ListType.ALLOWED
@@ -28,8 +29,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -58,23 +62,9 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
         enablePlaceholders = false
     )
 
-    val blockedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
-        Pager(pagingConfig) {
-            hostListItemDao.loadList(BLOCKED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
-        }.flow
-    }.cachedIn(viewModelScope)
-
-    val allowedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
-        Pager(pagingConfig) {
-            hostListItemDao.loadList(ALLOWED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
-        }.flow
-    }.cachedIn(viewModelScope)
-
-    val redirectedListItems: Flow<PagingData<ListedHost>> = filter.flatMapLatest { currentFilter ->
-        Pager(pagingConfig) {
-            hostListItemDao.loadList(REDIRECTED.value, currentFilter.sourcesIncluded, currentFilter.sqlQuery)
-        }.flow
-    }.cachedIn(viewModelScope)
+    val blocked = ListPage(BLOCKED)
+    val allowed = ListPage(ALLOWED)
+    val redirected = ListPage(REDIRECTED)
 
     private val _modelChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val modelChanged: SharedFlow<Unit> = _modelChanged.asSharedFlow()
@@ -124,20 +114,66 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun search(query: String) {
-        val currentFilter = getFilter()
-        setFilter(ListsFilter(currentFilter.sourcesIncluded, query))
+        setFilter(ListsFilter(query))
     }
 
     fun isSearching(): Boolean = getFilter().query.isNotEmpty()
 
     fun clearSearch() {
-        val currentFilter = getFilter()
-        setFilter(ListsFilter(currentFilter.sourcesIncluded, ""))
+        setFilter(ALL)
     }
 
     private fun getFilter(): ListsFilter = filter.value
 
     private fun setFilter(filter: ListsFilter) {
         this.filter.value = filter
+    }
+
+    /**
+     * One tab of the screen: its hosts, the sources they can be narrowed to, and the one chosen.
+     * The search applies to every tab, while each tab keeps its own source.
+     */
+    inner class ListPage(private val type: ListType) {
+        private val _selectedSource = MutableStateFlow<Int?>(null)
+
+        /**
+         * The id of the source whose hosts alone are shown, [USER_SOURCE_ID] for the hosts the user
+         * added, or `null` for the hosts of every source.
+         */
+        val selectedSource: StateFlow<Int?> = _selectedSource.asStateFlow()
+
+        /**
+         * The sources listing at least one host of this tab, offered as filters. When the chosen
+         * one stops listing any, for instance once it is disabled and cleared, the tab goes back
+         * to every source rather than staying empty behind a filter no longer shown.
+         */
+        val sources: StateFlow<List<HostsSource>> =
+            hostsSourceDao.loadListingSources(type.value).asFlow()
+                .onEach { listing ->
+                    val selected = _selectedSource.value
+                    if (selected != null && selected != USER_SOURCE_ID &&
+                        listing.none { it.id == selected }
+                    ) {
+                        _selectedSource.value = null
+                    }
+                }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+        val items: Flow<PagingData<ListedHost>> =
+            combine(filter, _selectedSource) { currentFilter, sourceId -> currentFilter to sourceId }
+                .flatMapLatest { (currentFilter, sourceId) ->
+                    Pager(pagingConfig) {
+                        if (sourceId == null) {
+                            hostListItemDao.loadList(type.value, currentFilter.sqlQuery)
+                        } else {
+                            hostListItemDao.loadSourceList(type.value, sourceId, currentFilter.sqlQuery)
+                        }
+                    }.flow
+                }
+                .cachedIn(viewModelScope)
+
+        fun selectSource(sourceId: Int?) {
+            _selectedSource.value = sourceId
+        }
     }
 }

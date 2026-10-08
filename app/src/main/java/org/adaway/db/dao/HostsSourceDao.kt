@@ -48,6 +48,13 @@ interface HostsSourceDao {
     @Query("SELECT * FROM hosts_sources WHERE id != 1 ORDER BY label ASC")
     fun loadAll(): LiveData<List<HostsSource>>
 
+    /**
+     * Load the sources listing at least one host of a type, other than the user's own, by name.
+     * Each check is a single lookup in the source, type and host index.
+     */
+    @Query("SELECT * FROM hosts_sources WHERE id != 1 AND EXISTS (SELECT 1 FROM hosts_lists WHERE hosts_lists.source_id = hosts_sources.id AND hosts_lists.type = :type) ORDER BY label COLLATE NOCASE ASC")
+    fun loadListingSources(type: Int): LiveData<List<HostsSource>>
+
     @Query("UPDATE hosts_sources SET last_modified_online = :dateTime WHERE id = :id")
     fun updateOnlineModificationDate(id: Int, dateTime: ZonedDateTime?)
 

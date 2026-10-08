@@ -6,6 +6,9 @@
     <string name="lists_tab_blocked">Блокировано</string>
     <string name="lists_tab_allowed">Разрешено</string>
     <string name="lists_tab_redirected">Перенаправлено</string>
+    <!-- Source filters -->
+    <string name="lists_filter_all">Все</string>
+    <string name="lists_filter_personal">Личные</string>
     <!-- Menu -->
     <string name="lists_menu_filter">Фильтровать хосты</string>
     <string name="lists_menu_filter_hint">Поиск имени хоста…</string>
