@@ -7,11 +7,11 @@
     <string name="pref_update_app_category">Обновления приложения</string>
     <string name="pref_update_check_app_startup">Проверять обновления при запуске</string>
     <string name="pref_update_check_app_daily">Периодическая проверка обновлений</string>
-    <string name="pref_update_include_beta_releases">Включая бета-версии</string>
+    <string name="pref_update_include_beta_releases">Включать бета-версии</string>
     <!-- Application hosts -->
     <string name="pref_update_hosts_category">Обновления хостов</string>
     <string name="pref_update_check">Проверять обновления при запуске</string>
     <string name="pref_update_check_hosts_daily">Периодическая проверка обновлений</string>
     <string name="pref_update_sync_on_update">Синхронизация при обновлении</string>
-    <string name="pref_update_sync_unmetered_only">Синхронизация только в нетарифицируемой сети</string>
+    <string name="pref_update_sync_unmetered_only">Синхронизировать только в безлимитной сети</string>
 </resources>

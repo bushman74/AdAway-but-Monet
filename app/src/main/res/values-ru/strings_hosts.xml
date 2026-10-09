@@ -2,7 +2,7 @@
 <resources>
     <string name="hosts_title">Источники хостов</string>
     <!-- Default hosts source -->
-    <string name="hosts_user_source">Список пользоватей</string>
+    <string name="hosts_user_source">Список пользователя</string>
     <string name="hosts_adaway_source">Официальные списки от AdAway</string>
     <string name="hosts_stevenblack_source">Единые списки от StevenBlack</string>
     <string name="hosts_peterlowe_source">Списки блокировки от Pete Lowe</string>
