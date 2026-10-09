@@ -47,6 +47,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -81,6 +82,7 @@ import org.adaway.ui.compose.ExpressiveIconBadge
 import org.adaway.ui.compose.ExpressiveFloatingBottomBar
 import org.adaway.ui.compose.ExpressiveScaffold
 import org.adaway.ui.compose.ExpressiveSection
+import org.adaway.ui.compose.formatFullCount
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
 import org.adaway.ui.compose.ExpressiveAsymmetricShape2
 import org.adaway.ui.compose.ScallopedShape
@@ -368,15 +370,16 @@ private fun HomeScreen(
                         contentColor = if (state.adBlocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
                         shape = MaterialTheme.shapes.large
                     ) {
+                        // Named for what pressing it does, not for the picture it shows.
                         if (state.adBlocked) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_pause_24dp),
-                                contentDescription = stringResource(R.string.adblock_pause_button_description)
+                                contentDescription = stringResource(R.string.adblock_pause_description)
                             )
                         } else {
                             Image(
                                 painter = painterResource(R.drawable.logo),
-                                contentDescription = stringResource(R.string.app_logo),
+                                contentDescription = stringResource(R.string.adblock_resume_description),
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -553,13 +556,15 @@ private fun HomeHeader(
     state: HomeScreenState,
     onOpenUpdate: () -> Unit
 ) {
+    // Off, the panel takes the colours the ad-blocking button wears in that state. It used the
+    // outline colour under the variant text colour, two greys too close to read one on the other.
     val statusColor by animateColorAsState(
-        targetValue = if (state.adBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        targetValue = if (state.adBlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
         animationSpec = tween(500),
         label = "statusColor"
     )
     val onStatusColor by animateColorAsState(
-        targetValue = if (state.adBlocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (state.adBlocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(500),
         label = "onStatusColor"
     )
@@ -593,18 +598,17 @@ private fun HomeHeader(
                         )
                     }
                     
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(onStatusColor.copy(alpha = 0.15f))
-                            .safeClickable(onClick = onOpenUpdate)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    Surface(
+                        onClick = onOpenUpdate,
+                        shape = CircleShape,
+                        color = onStatusColor.copy(alpha = 0.15f),
+                        contentColor = onStatusColor
                     ) {
                         Text(
                             text = if (state.updateAvailable) stringResource(R.string.update_available) else state.versionName,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = onStatusColor
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                         )
                     }
                 }
@@ -730,7 +734,7 @@ private fun HomeMetricCard(
                     )
                 } else {
                     ShrinkToFitText(
-                        text = targetCount.toString(),
+                        text = formatFullCount(targetCount),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         modifier = Modifier.padding(top = 12.dp)

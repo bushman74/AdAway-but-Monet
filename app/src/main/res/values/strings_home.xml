@@ -43,4 +43,6 @@
     <!-- Error dialog -->
     <string name="error_dialog_help">Please read Help for more information.</string>
 
+    <string name="adblock_pause_description">Pause ad blocking</string>
+    <string name="adblock_resume_description">Turn on ad blocking</string>
 </resources>

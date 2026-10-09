@@ -47,4 +47,6 @@
     <!-- Error dialog -->
     <string name="error_dialog_help">Пожалуйста, прочтите Справку, чтобы узнать больше.</string>
 
+    <string name="adblock_pause_description">Приостановить блокировку рекламы</string>
+    <string name="adblock_resume_description">Включить блокировку рекламы</string>
 </resources>
