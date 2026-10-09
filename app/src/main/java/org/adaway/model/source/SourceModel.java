@@ -55,7 +55,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import okhttp3.Cache;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -67,10 +66,6 @@ import timber.log.Timber;
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
 public class SourceModel {
-    /**
-     * The HTTP client cache size (100Mo).
-     */
-    private static final long CACHE_SIZE = 100L * 1024L * 1024L;
     /**
      * The time to establish a connection to a source.
      */
@@ -555,8 +550,10 @@ public class SourceModel {
     @NonNull
     private OkHttpClient getHttpClient() {
         if (this.cachedHttpClient == null) {
+            // No disk cache: every download carries the conditions of the copy already loaded,
+            // so a cached response was never read back, and caching wrote each downloaded source
+            // to the storage a second time.
             this.cachedHttpClient = new OkHttpClient.Builder()
-                    .cache(new Cache(this.context.getCacheDir(), CACHE_SIZE))
                     .connectTimeout(CONNECT_TIMEOUT)
                     .readTimeout(READ_TIMEOUT)
                     .build();

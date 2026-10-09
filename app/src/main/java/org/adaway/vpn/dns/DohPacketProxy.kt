@@ -33,6 +33,7 @@ import org.xbill.DNS.SOARecord
 import org.xbill.DNS.Section
 import org.xbill.DNS.TextParseException
 import timber.log.Timber
+import java.io.File
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.Inet4Address
@@ -54,7 +55,9 @@ class DohPacketProxy(
     }
 
     private fun createDnsOverHttps(context: Context): DnsOverHttps {
-        val dnsClientCache = Cache(context.cacheDir, 10 * 1024 * 1024L)
+        // A directory of its own: OkHttp forbids two caches sharing one, and the cache of the
+        // hosts source downloads used to be at the top of the cache directory too.
+        val dnsClientCache = Cache(File(context.cacheDir, DNS_CACHE_DIRECTORY), 10 * 1024 * 1024L)
         val dnsClient = OkHttpClient.Builder().cache(dnsClientCache).build()
         return DnsOverHttps.Builder()
             .client(dnsClient)
@@ -224,6 +227,11 @@ class DohPacketProxy(
 
     companion object {
         private const val NEGATIVE_CACHE_TTL_SECONDS = 5
+
+        /**
+         * The directory of the cache of DNS over HTTPS answers, inside the cache directory.
+         */
+        private const val DNS_CACHE_DIRECTORY = "doh"
         private val SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val NEGATIVE_CACHE_SOA_RECORD: SOARecord = try {
             val name = Name("adaway.vpn.invalid.")

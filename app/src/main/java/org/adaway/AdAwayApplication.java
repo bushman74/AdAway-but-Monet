@@ -11,6 +11,8 @@ import org.adaway.model.source.SourceModel;
 import org.adaway.model.source.SourceUpdateService;
 import org.adaway.model.update.ApkUpdateService;
 import org.adaway.model.update.UpdateModel;
+import org.adaway.util.CoroutineDispatchers;
+import org.adaway.util.LegacyHttpCache;
 import org.adaway.util.log.ApplicationLog;
 
 /**
@@ -47,6 +49,8 @@ public class AdAwayApplication extends Application {
         // model, so the models can be built only when something actually needs them.
         SourceUpdateService.syncPreferences(this);
         ApkUpdateService.syncPreferences(this);
+        // Remove what the former cache of source downloads left behind, up to 100 MB.
+        CoroutineDispatchers.ioExecutor().execute(() -> LegacyHttpCache.clear(getCacheDir()));
     }
 
     /**
