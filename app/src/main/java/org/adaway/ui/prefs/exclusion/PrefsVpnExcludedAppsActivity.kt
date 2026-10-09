@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,11 +58,13 @@ import org.adaway.ui.compose.ExpressiveTopBar
 internal fun VpnExcludedAppsRoute(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     var applications by remember { mutableStateOf(emptyList<UserApp>()) }
+    var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(context) {
         applications = withContext(Dispatchers.Default) {
             loadUserApplications(context.applicationContext)
         }
+        loaded = true
     }
 
     fun updateApplications(update: (UserApp) -> Unit) {
@@ -73,6 +81,7 @@ internal fun VpnExcludedAppsRoute(onNavigateBack: () -> Unit) {
 
     VpnExcludedAppsScreen(
         applications = applications,
+        loaded = loaded,
         onNavigateBack = onNavigateBack,
         onSelectAll = {
             updateApplications { application -> application.excluded = true }
@@ -118,6 +127,7 @@ private fun loadUserApplications(context: Context): List<UserApp> {
 @Composable
 private fun VpnExcludedAppsScreen(
     applications: List<UserApp>,
+    loaded: Boolean,
     onNavigateBack: () -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
@@ -129,22 +139,57 @@ private fun VpnExcludedAppsScreen(
                 title = stringResource(R.string.pref_vpn_exclude_user_apps_activity),
                 onNavigateBack = onNavigateBack,
                 actions = {
-                    IconButton(onClick = onSelectAll) {
-                        Icon(
-                            painter = painterResource(R.drawable.baseline_check_24),
-                            contentDescription = stringResource(R.string.pref_vpn_exclude_user_apps_select_all)
-                        )
-                    }
-                    IconButton(onClick = onDeselectAll) {
-                        Icon(
-                            painter = painterResource(R.drawable.outline_delete_24),
-                            contentDescription = stringResource(R.string.pref_vpn_exclude_user_apps_deselect_all)
-                        )
+                    // Named actions in a menu: as bare icons, a tick and a bin, selecting none
+                    // read as deleting something.
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.baseline_more_vert_24),
+                                contentDescription = stringResource(R.string.more_options_description)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(stringResource(R.string.pref_vpn_exclude_user_apps_select_all))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSelectAll()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(stringResource(R.string.pref_vpn_exclude_user_apps_deselect_all))
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeselectAll()
+                                }
+                            )
+                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
+        if (!loaded) {
+            // Reading every installed app takes a moment; until then the list is not empty, it is
+            // not known yet.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return@ExpressiveScaffold
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -174,8 +219,7 @@ private fun UserAppCard(
 ) {
     ExpressiveSection(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        shape = shape,
-        onClick = { onToggle(!application.excluded) }
+        shape = shape
     ) {
         val iconSizeDp = 40.dp
         val iconSizePx = with(LocalDensity.current) { iconSizeDp.roundToPx() }
@@ -185,9 +229,16 @@ private fun UserAppCard(
                 .asImageBitmap()
         }
 
+        // The row is the switch, so it is announced once, with the app's name and whether it is
+        // excluded.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .toggleable(
+                    value = application.excluded,
+                    role = Role.Switch,
+                    onValueChange = onToggle
+                )
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -225,7 +276,7 @@ private fun UserAppCard(
 
                 Switch(
                     checked = application.excluded,
-                    onCheckedChange = onToggle
+                    onCheckedChange = null
                 )
             }
         }

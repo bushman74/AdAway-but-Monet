@@ -289,4 +289,5 @@
 
     <string name="tile_ad_blocking_turning_on">Включается…</string>
     <string name="tile_ad_blocking_turning_off">Выключается…</string>
+    <string name="more_options_description">Другие действия</string>
 </resources>

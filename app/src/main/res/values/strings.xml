@@ -288,4 +288,5 @@
     <string name="pref_update_interval_2d">2 days</string>
     <string name="pref_update_interval_1w">1 week</string>
     <string name="all_sources_up_to_date">All sources are up to date</string>
+    <string name="more_options_description">More options</string>
 </resources>
