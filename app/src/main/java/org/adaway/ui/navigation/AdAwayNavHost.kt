@@ -2,6 +2,8 @@ package org.adaway.ui.navigation
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -101,18 +104,14 @@ internal fun AdAwayNavHost(
                 animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
             ) + fadeOut(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
         },
-        popEnterTransition = {
-            slideIntoContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
-            ) + fadeIn(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
-        },
-        popExitTransition = {
-            slideOutOfContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
-            ) + fadeOut(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
-        }
+        popEnterTransition = { slideBackIn() },
+        popExitTransition = { slideBackOut() },
+        // The back gesture has transitions of its own since Navigation 2.10, which by default
+        // shrink the leaving screen. The screens are drawn over one shared background, so only
+        // their cards shrank while the background stayed. The gesture now slides the screen
+        // away like any other way back.
+        predictivePopEnterTransition = { slideBackIn() },
+        predictivePopExitTransition = { slideBackOut() }
     ) {
         composable(AdAwayRoute.WELCOME) {
             WelcomeRoute(
@@ -276,6 +275,26 @@ internal fun AdAwayNavHost(
             )
         }
     }
+}
+
+/**
+ * The previous screen coming back from the left as the current one leaves.
+ */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideBackIn(): EnterTransition {
+    return slideIntoContainer(
+        towards = AnimatedContentTransitionScope.SlideDirection.Right,
+        animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
+    ) + fadeIn(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
+}
+
+/**
+ * The current screen leaving to the right on the way back.
+ */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideBackOut(): ExitTransition {
+    return slideOutOfContainer(
+        towards = AnimatedContentTransitionScope.SlideDirection.Right,
+        animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
+    ) + fadeOut(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
 }
 
 private fun PrefsDestination.toRoute(): String {
