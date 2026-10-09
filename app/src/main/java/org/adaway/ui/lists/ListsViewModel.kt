@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.asFlow
 import androidx.lifecycle.viewModelScope
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -169,6 +172,10 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
                             hostListItemDao.loadSourceList(type.value, sourceId, currentFilter.sqlQuery)
                         }
                     }.flow
+                        // A new search or source starts from an empty list that is loading, so the
+                        // screen shows the spinner until its results arrive, as when it opens,
+                        // instead of leaving the previous results in place meanwhile.
+                        .onStart { emit(PagingData.empty(LOADING)) }
                 }
                 .cachedIn(viewModelScope)
 
@@ -177,3 +184,12 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
+/**
+ * The state of a list whose first page is being read.
+ */
+private val LOADING = LoadStates(
+    refresh = LoadState.Loading,
+    prepend = LoadState.NotLoading(endOfPaginationReached = false),
+    append = LoadState.NotLoading(endOfPaginationReached = false)
+)

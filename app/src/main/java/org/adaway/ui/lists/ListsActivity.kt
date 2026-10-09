@@ -252,6 +252,16 @@ private fun ListsScreen(
                 val sources by listPage.sources.collectAsStateWithLifecycle()
                 val selectedSource by listPage.selectedSource.collectAsStateWithLifecycle()
                 val listState = rememberLazyListState()
+                // Results of another search start from the top, not at the position reached in
+                // the previous ones. Only a change of the query scrolls, so a restored screen keeps
+                // its place.
+                var scrolledForQuery by rememberSaveable { mutableStateOf(searchQuery) }
+                LaunchedEffect(searchQuery) {
+                    if (searchQuery != scrolledForQuery) {
+                        scrolledForQuery = searchQuery
+                        listState.scrollToItem(0)
+                    }
+                }
 
                 Column(modifier = Modifier.fillMaxSize()) {
                     SourceFilterRow(
