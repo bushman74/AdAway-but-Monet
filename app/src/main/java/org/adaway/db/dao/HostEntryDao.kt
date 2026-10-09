@@ -12,17 +12,23 @@ import java.util.regex.Pattern
 
 @Dao
 interface HostEntryDao {
-    @Query("DELETE FROM `host_entries`")
-    fun clear()
+    /**
+     * Remove every entry but the enabled blocked hosts, as blocked entries.
+     *
+     * The redirected entries go too: they are added again once the blocked hosts are complete,
+     * as a full rebuild would. Each entry is checked against the index of the lists alone.
+     */
+    @Query("DELETE FROM `host_entries` WHERE `type` != 0 OR `redirection` IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `hosts_lists` WHERE `hosts_lists`.`type` = 0 AND `hosts_lists`.`enabled` = 1 AND `hosts_lists`.`host` = `host_entries`.`host`)")
+    fun removeUnblocked()
 
     /**
-     * Add every enabled blocked host, once each.
+     * Add every enabled blocked host not yet an entry, once each.
      *
      * Grouped by host rather than made distinct over every column: the index of the lists then
      * answers it alone, already in host order, and a host is imported once even if two of its
      * rows were ever to differ. A blocked entry has no redirection.
      */
-    @Query("INSERT INTO `host_entries` SELECT `host`, 0, NULL FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1 GROUP BY `host`")
+    @Query("INSERT OR IGNORE INTO `host_entries` SELECT `host`, 0, NULL FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1 GROUP BY `host`")
     fun importBlocked()
 
     @get:Query("SELECT host FROM hosts_lists WHERE type = 1 AND enabled = 1")
@@ -50,10 +56,13 @@ interface HostEntryDao {
      * redirected hosts are applied, as the home screen shows it.
      */
     fun sync(): Int {
-        clear()
+        // Rebuilt in place rather than from nothing: the entries still blocked are kept as they
+        // are, and only the others are written. Rewriting all of them, every time the lists
+        // changed even a little, wrote four times as much to the storage.
+        removeUnblocked()
         importBlocked()
-        // Each blocked host was imported once, so the entries count them now without reading
-        // the lists again.
+        // The entries are now exactly the blocked hosts, once each, so counting them counts the
+        // distinct blocked hosts without reading the lists again.
         val blockedCount = count
         applyAllowList()
         applyRedirectList()
