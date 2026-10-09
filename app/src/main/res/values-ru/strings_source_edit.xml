@@ -13,6 +13,9 @@
     <string name="source_edit_url_location_required">Требуется доступ к Местоположению</string>
     <string name="source_edit_file_hint">Нажмите Файл, чтобы выбрать исходный файл</string>
     <string name="source_edit_location_invalid">Неверное местоположение</string>
+    <string name="source_edit_location_duplicate">Этот источник уже есть в списке</string>
+    <string name="source_edit_delete_title">Удалить источник?</string>
+    <string name="source_edit_delete_message">Источник «%1$s» и его хосты будут удалены.</string>
     <string name="source_edit_format">Формат списка</string>
     <string name="source_edit_format_block_list">Блокировать</string>
     <string name="source_edit_format_allow_list">Разрешить</string>

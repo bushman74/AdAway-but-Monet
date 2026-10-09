@@ -13,6 +13,9 @@
     <string name="source_edit_url_location_required">Location required</string>
     <string name="source_edit_file_hint">Press File to select source file</string>
     <string name="source_edit_location_invalid">Invalid location</string>
+    <string name="source_edit_location_duplicate">This source is already in the list</string>
+    <string name="source_edit_delete_title">Delete source?</string>
+    <string name="source_edit_delete_message">%1$s and the hosts it provides will be removed.</string>
     <string name="source_edit_format">List format</string>
     <string name="source_edit_format_block_list">Block</string>
     <string name="source_edit_format_allow_list">Allow</string>

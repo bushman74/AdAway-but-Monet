@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -31,12 +32,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.adaway.R
 import org.adaway.db.AppDatabase
+import org.adaway.db.dao.HostsSourceDao
 import org.adaway.db.entity.HostsSource
 import org.adaway.db.entity.SourceType
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
@@ -77,6 +81,7 @@ internal fun SourceEditRoute(
     }
     val editing = sourceId != null
     val coroutineScope = rememberCoroutineScope()
+    var deleteRequested by rememberSaveable { mutableStateOf(false) }
 
     val startActivityLauncher = rememberLauncherForActivityResult(StartActivityForResult()) { result ->
         val uri: Uri? = result.data?.data
@@ -119,19 +124,32 @@ internal fun SourceEditRoute(
         val validation = validateSource(screenState)
         screenState = validation.state
         val source = validation.source ?: return
-        val sourceToReplace = edited
+        val sourceToUpdate = edited
         coroutineScope.launch {
-            withContext(Dispatchers.IO) {
-                if (editing && sourceToReplace != null) {
-                    hostsSourceDao.delete(sourceToReplace)
+            val saved = withContext(Dispatchers.IO) {
+                // The address is unique among the sources, and inserting a second one with it
+                // was silently ignored, so the screen closed as if the source had been added.
+                val existing = hostsSourceDao.getByUrl(source.url).orElse(null)
+                if (existing != null && existing.id != sourceToUpdate?.id) {
+                    return@withContext false
                 }
-                hostsSourceDao.insert(source)
+                if (sourceToUpdate == null) {
+                    hostsSourceDao.insert(source)
+                } else {
+                    updateSource(hostsSourceDao, sourceToUpdate, source)
+                }
+                true
             }
-            onNavigateBack()
+            if (saved) {
+                onNavigateBack()
+            } else {
+                screenState = screenState.copy(locationError = R.string.source_edit_location_duplicate)
+            }
         }
     }
 
     fun deleteEditedSource() {
+        deleteRequested = false
         val source = edited ?: return
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
@@ -146,7 +164,7 @@ internal fun SourceEditRoute(
         editing = editing,
         onNavigateBack = onNavigateBack,
         onSave = ::saveSource,
-        onDelete = ::deleteEditedSource,
+        onDelete = { deleteRequested = true },
         onLabelChanged = { value ->
             screenState = screenState.copy(label = value, labelError = null)
         },
@@ -180,6 +198,48 @@ internal fun SourceEditRoute(
             screenState = screenState.copy(redirectedHosts = checked)
         }
     )
+
+    if (deleteRequested) {
+        AlertDialog(
+            onDismissRequest = { deleteRequested = false },
+            title = { Text(text = stringResource(R.string.source_edit_delete_title)) },
+            text = {
+                Text(text = stringResource(R.string.source_edit_delete_message, screenState.label))
+            },
+            confirmButton = {
+                TextButton(onClick = ::deleteEditedSource) {
+                    Text(text = stringResource(R.string.checkbox_list_context_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteRequested = false }) {
+                    Text(text = stringResource(R.string.button_cancel))
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Apply an edit to the source in place.
+ *
+ * It used to be deleted and inserted again, which took its hosts with it, reset its update status
+ * and turned it back on if it was off. Now it keeps its id, its hosts and whether it is enabled.
+ * Only when what it provides changes, its address or how it is read, is it marked as never
+ * downloaded, so the next update fetches it again.
+ */
+private fun updateSource(dao: HostsSourceDao, source: HostsSource, edit: HostsSource) {
+    val contentChanged = source.url != edit.url ||
+            source.isAllowEnabled != edit.isAllowEnabled ||
+            source.isRedirectEnabled != edit.isRedirectEnabled
+    source.label = edit.label
+    source.url = edit.url
+    source.setAllowEnabled(edit.isAllowEnabled)
+    source.setRedirectEnabled(edit.isRedirectEnabled)
+    dao.update(source)
+    if (contentChanged) {
+        dao.clearProperties(source.id)
+    }
 }
 
 private enum class SourceInputType {

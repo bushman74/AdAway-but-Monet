@@ -42,6 +42,9 @@ interface HostsSourceDao {
     @Query("SELECT * FROM hosts_sources WHERE id = :id")
     fun getById(id: Int): Optional<HostsSource>
 
+    @Query("SELECT * FROM hosts_sources WHERE url = :url")
+    fun getByUrl(url: String): Optional<HostsSource>
+
     @get:Query("SELECT * FROM hosts_sources WHERE id != 1 ORDER BY label ASC")
     val all: List<HostsSource>
 
