@@ -5,9 +5,8 @@ import org.junit.Test;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.regex.Matcher;
 
-import static org.adaway.model.source.SourceLoader.HOSTS_PARSER_PATTERN;
+import static org.adaway.model.source.SourceLoader.splitHostsLine;
 import static org.junit.Assert.*;
 
 public class SourceLoaderTest {
@@ -105,16 +104,28 @@ public class SourceLoaderTest {
 
     @Test
     public void testHostParser() {
-        Matcher matcher = HOSTS_PARSER_PATTERN.matcher("# [mocean.mobi]");
-        assertFalse(matcher.matches());
-        matcher = HOSTS_PARSER_PATTERN.matcher("127.0.0.1 www.domain.com ## some comments #");
-        assertTrue(matcher.matches());
-        assertEquals("127.0.0.1", matcher.group(1));
-        assertEquals("www.domain.com", matcher.group(2));
-        matcher = HOSTS_PARSER_PATTERN.matcher("127.0.0.1 ad.domain.net ## some comments");
-        assertTrue(matcher.matches());
-        assertEquals("127.0.0.1", matcher.group(1));
-        assertEquals("ad.domain.net", matcher.group(2));
+        assertNull(splitHostsLine("# [mocean.mobi]"));
+        assertArrayEquals(
+                new String[]{"127.0.0.1", "www.domain.com"},
+                splitHostsLine("127.0.0.1 www.domain.com ## some comments #")
+        );
+        assertArrayEquals(
+                new String[]{"127.0.0.1", "ad.domain.net"},
+                splitHostsLine("127.0.0.1 ad.domain.net ## some comments")
+        );
+        assertArrayEquals(
+                new String[]{"0.0.0.0", "tabs.example.com"},
+                splitHostsLine(" \t0.0.0.0\t\ttabs.example.com\t")
+        );
+        assertArrayEquals(
+                new String[]{"::1", "ipv6.example.com"},
+                splitHostsLine("::1 ipv6.example.com#comment")
+        );
+        assertNull(splitHostsLine("0.0.0.0"));
+        assertNull(splitHostsLine("0.0.0.0 "));
+        assertNull(splitHostsLine("0.0.0.0 # no host"));
+        assertNull(splitHostsLine("0.0.0.0#example.com"));
+        assertNull(splitHostsLine(""));
     }
 
     @Test

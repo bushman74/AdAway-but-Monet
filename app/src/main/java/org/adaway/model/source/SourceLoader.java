@@ -28,8 +28,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import timber.log.Timber;
 
@@ -60,8 +58,6 @@ class SourceLoader {
      * running, so a parser that died without a word can never leave it waiting forever.
      */
     private static final long POLL_TIMEOUT_SECONDS = 1;
-    private static final String HOSTS_PARSER = "^\\s*([^#\\s]+)\\s+([^#\\s]+).*$";
-    static final Pattern HOSTS_PARSER_PATTERN = Pattern.compile(HOSTS_PARSER);
 
     private final HostsSource source;
 
@@ -232,15 +228,14 @@ class SourceLoader {
     }
 
     private HostListItem parseHostListItem(String line) {
-        Matcher matcher = HOSTS_PARSER_PATTERN.matcher(line);
-        if (!matcher.matches()) {
+        String[] fields = splitHostsLine(line);
+        if (fields == null) {
             // Not logged: this runs once per source line.
             return null;
         }
         // Check IP address validity or while list entry (if allowed)
-        String ip = matcher.group(1);
-        String hostname = matcher.group(2);
-        assert hostname != null;
+        String ip = fields[0];
+        String hostname = fields[1];
         // Skip localhost name
         if (LOCALHOST_HOSTNAME.equals(hostname)) {
             return null;
@@ -265,6 +260,71 @@ class SourceLoader {
         }
         item.setSourceId(this.source.getId());
         return item;
+    }
+
+    /**
+     * Split a hosts line into its address and its host name.
+     * <p>
+     * It reads lines exactly as the regular expression {@code ^\s*([^#\s]+)\s+([^#\s]+).*$}
+     * used to, at a fraction of the cost: leading blanks, an address, blanks, a host name, then
+     * anything. A field ends at a blank or at a {@code #}, and the line is rejected when the
+     * address is not followed by a blank or when no host name follows it.
+     *
+     * @param line The line to split.
+     * @return The address then the host name, or {@code null} when the line has no host name.
+     */
+    @Nullable
+    static String[] splitHostsLine(String line) {
+        int length = line.length();
+        int index = 0;
+        while (index < length && isBlank(line.charAt(index))) {
+            index++;
+        }
+        int addressStart = index;
+        while (index < length && !endsField(line.charAt(index))) {
+            index++;
+        }
+        // The address must be followed by a blank, not by a comment or the end of the line.
+        if (index == addressStart || index == length || !isBlank(line.charAt(index))) {
+            return null;
+        }
+        int addressEnd = index;
+        while (index < length && isBlank(line.charAt(index))) {
+            index++;
+        }
+        int hostStart = index;
+        while (index < length && !endsField(line.charAt(index))) {
+            index++;
+        }
+        if (index == hostStart) {
+            return null;
+        }
+        // What follows the host name is ignored, unless it spans lines: the expression matched
+        // a single line.
+        for (int rest = index; rest < length; rest++) {
+            if (isLineTerminator(line.charAt(rest))) {
+                return null;
+            }
+        }
+        return new String[]{line.substring(addressStart, addressEnd), line.substring(hostStart, index)};
+    }
+
+    /**
+     * Tell whether a character is a blank, as {@code \s} matches in a regular expression.
+     */
+    private static boolean isBlank(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
+    }
+
+    private static boolean endsField(char c) {
+        return c == '#' || isBlank(c);
+    }
+
+    /**
+     * Tell whether a character ends a line, as {@code .} does not match in a regular expression.
+     */
+    private static boolean isLineTerminator(char c) {
+        return c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029';
     }
 
     private HostListItem parseAllowListItem(String line) {

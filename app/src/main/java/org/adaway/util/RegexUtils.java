@@ -30,15 +30,77 @@ import timber.log.Timber;
 
 public class RegexUtils {
     private static final Pattern WILDCARD_PATTERN = Pattern.compile("[*?]");
+    /**
+     * The longest valid host name, without its trailing dot.
+     */
+    private static final int MAX_LENGTH = 253;
+    /**
+     * The most labels a valid host name has.
+     */
+    private static final int MAX_LABELS = 127;
+    /**
+     * The longest valid label.
+     */
+    private static final int MAX_LABEL_LENGTH = 63;
 
     /**
      * Check whether a hostname is valid.
+     * <p>
+     * The rules are those of {@link InternetDomainName#isValid(String)}, which is called for the
+     * names holding non-ASCII characters. The other names, nearly all of them, are checked here
+     * in a single pass: Guava builds a list of labels and several copies of the name to check
+     * one, which made validation most of the cost of parsing a source.
      *
      * @param hostname The hostname to validate.
      * @return return {@code true} if hostname is valid, {@code false} otherwise.
      */
     public static boolean isValidHostname(String hostname) {
-        return InternetDomainName.isValid(hostname);
+        int length = hostname.length();
+        for (int index = 0; index < length; index++) {
+            if (hostname.charAt(index) >= 0x80) {
+                return InternetDomainName.isValid(hostname);
+            }
+        }
+        // A single trailing dot is allowed.
+        if (length > 0 && hostname.charAt(length - 1) == '.') {
+            length--;
+        }
+        if (length > MAX_LENGTH) {
+            return false;
+        }
+        int labels = 0;
+        int labelStart = 0;
+        for (int index = 0; index <= length; index++) {
+            if (index == length || hostname.charAt(index) == '.') {
+                int labelLength = index - labelStart;
+                if (labelLength < 1 || labelLength > MAX_LABEL_LENGTH) {
+                    return false;
+                }
+                // No label starts or ends with a dash or an underscore.
+                char first = hostname.charAt(labelStart);
+                char last = hostname.charAt(index - 1);
+                if (first == '-' || first == '_' || last == '-' || last == '_') {
+                    return false;
+                }
+                // The last label does not start with a digit, which tells names from addresses.
+                if (index == length && first >= '0' && first <= '9') {
+                    return false;
+                }
+                labels++;
+                labelStart = index + 1;
+            } else if (!isLabelCharacter(hostname.charAt(index))) {
+                return false;
+            }
+        }
+        return labels <= MAX_LABELS;
+    }
+
+    private static boolean isLabelCharacter(char c) {
+        return (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9')
+                || c == '-'
+                || c == '_';
     }
 
     /**
@@ -58,6 +120,10 @@ public class RegexUtils {
      * @return return {@code true} if wildcard hostname is valid, {@code false} otherwise.
      */
     public static boolean isValidWildcardHostname(String hostname) {
+        // Without wildcard, both names below are the name itself.
+        if (hostname.indexOf('*') == -1 && hostname.indexOf('?') == -1) {
+            return isValidHostname(hostname);
+        }
         // Clear wildcards from host name then validate it
         Matcher matcher = WILDCARD_PATTERN.matcher(hostname);
         String clearedHostname = matcher.replaceAll("");
