@@ -9,6 +9,7 @@ import static java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME;
 import static java.time.format.FormatStyle.MEDIUM;
 import static java.util.Objects.requireNonNull;
 import static org.adaway.db.entity.SourceType.FILE;
+import static org.adaway.db.entity.SourceType.URL;
 
 import android.content.ContentResolver;
 import android.content.Context;
@@ -45,6 +46,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.InterruptedIOException;
 import java.io.Reader;
 import java.net.MalformedURLException;
 import java.time.Duration;
@@ -55,10 +57,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
+import okio.Buffer;
+import okio.BufferedSource;
 import timber.log.Timber;
 
 /**
@@ -94,6 +101,15 @@ public class SourceModel {
     private static final String IF_MODIFIED_SINCE_HEADER = "If-Modified-Since";
     private static final String ENTITY_TAG_HEADER = "ETag";
     private static final String WEAK_ENTITY_TAG_PREFIX = "W/";
+    /**
+     * The name of the thread downloading the next source while the current one is stored.
+     */
+    private static final String DOWNLOAD_THREAD_NAME = "SourceDownload";
+    /**
+     * A generous estimate of the bytes a source takes per host it lists, comments included, to
+     * tell from its last update whether it fits in memory.
+     */
+    private static final long BYTES_PER_HOST_ESTIMATE = 64;
     /**
      * The application context.
      */
@@ -450,6 +466,33 @@ public class SourceModel {
         ZonedDateTime now = ZonedDateTime.now();
         List<HostsSource> outdatedSources = plan.getOutdatedSources();
         List<String> failedSources = new ArrayList<>();
+        // Each source is downloaded while the previous one is stored, so the network and the
+        // database work at the same time instead of in turn.
+        try (AheadRunner<HostsSource, Download> downloads =
+                     new AheadRunner<>(outdatedSources, this::downloadAhead, DOWNLOAD_THREAD_NAME)) {
+            retrieveEach(outdatedSources, downloads, plan, now, listener, budget, failedSources);
+        }
+        if (failedSources.isEmpty()) {
+            NotificationHelper.clearSourceUpdateFailureNotification(this.context);
+        } else {
+            NotificationHelper.showSourceUpdateFailureNotification(this.context, failedSources);
+        }
+        // Synchronize hosts entries
+        syncHostEntries();
+    }
+
+    /**
+     * Retrieve each outdated source in turn, recording how each went.
+     */
+    private void retrieveEach(
+            List<HostsSource> outdatedSources,
+            AheadRunner<HostsSource, Download> downloads,
+            SourceUpdatePlan plan,
+            ZonedDateTime now,
+            SourceUpdateListener listener,
+            UpdateBudget budget,
+            List<String> failedSources
+    ) {
         for (int index = 0; index < outdatedSources.size(); index++) {
             HostsSource source = outdatedSources.get(index);
             int sourceId = source.getId();
@@ -464,7 +507,12 @@ public class SourceModel {
                 break;
             }
             listener.onSourceUpdateStarted(index, outdatedSources.size(), source.getLabel(), true);
-            String failure = retrieveWithRetry(source, budget);
+            int sourceIndex = index;
+            String failure = retrieveWithRetry(source, budget, () -> {
+                // Shown while the download made ahead is waited for, if it is not done yet.
+                setState(R.string.status_download_source, source.getLabel());
+                return takeDownload(downloads, sourceIndex);
+            });
             if (failure != null) {
                 Timber.w("Skipping host source %s: %s.", source.getUrl(), failure);
                 this.hostsSourceDao.updateLastUpdateError(sourceId, failure);
@@ -486,28 +534,27 @@ public class SourceModel {
             this.hostsSourceDao.updateLastUpdateError(sourceId, null);
             budget.recordSuccess();
         }
-        if (failedSources.isEmpty()) {
-            NotificationHelper.clearSourceUpdateFailureNotification(this.context);
-        } else {
-            NotificationHelper.showSourceUpdateFailureNotification(this.context, failedSources);
-        }
-        // Synchronize hosts entries
-        syncHostEntries();
     }
 
     /**
      * Retrieve a source, trying a second time if the first attempt fails.
      *
-     * @param source The source to retrieve.
-     * @param budget What the run is allowed to spend; no second attempt is made once it is spent.
+     * @param source   The source to retrieve.
+     * @param budget   What the run is allowed to spend; no second attempt is made once it is spent.
+     * @param download The download made ahead for the first attempt. A second attempt downloads
+     *                 the source again, while it is stored, as when nothing was downloaded ahead.
      * @return Why the source could not be retrieved, or {@code null} once it was.
      */
     @Nullable
-    private String retrieveWithRetry(HostsSource source, UpdateBudget budget) {
+    private String retrieveWithRetry(HostsSource source, UpdateBudget budget, DownloadSupplier download) {
         String failure = null;
         for (int attempt = 1; attempt <= RETRIEVAL_ATTEMPTS; attempt++) {
             try {
-                retrieveSource(source);
+                if (attempt == 1) {
+                    retrieveSource(source, download.get());
+                } else {
+                    retrieveSource(source);
+                }
                 return null;
             } catch (IOException | SecurityException e) {
                 Timber.w(e, "Attempt %d to retrieve host source %s failed.", attempt, source.getUrl());
@@ -520,6 +567,117 @@ public class SourceModel {
             }
         }
         return failure;
+    }
+
+    /**
+     * Retrieve a source from what was downloaded ahead for it.
+     *
+     * @param source   The source to retrieve.
+     * @param download What was downloaded ahead.
+     * @throws IOException If the source could not be retrieved.
+     */
+    private void retrieveSource(HostsSource source, Download download) throws IOException {
+        switch (download.kind) {
+            case NOT_MODIFIED:
+                Timber.d("Source %s was not updated since last fetch.", source.getUrl());
+                break;
+            case DOWNLOADED:
+                storeDownload(source, download);
+                break;
+            default:
+                retrieveSource(source);
+        }
+    }
+
+    /**
+     * Download a source ahead, while the previous one is stored. Runs on a thread of its own.
+     * <p>
+     * The source is kept in memory, so one that may not fit there is left to be downloaded while
+     * it is stored, as are files, which are read where they are.
+     *
+     * @param source The source to download.
+     * @return What was downloaded.
+     * @throws IOException If the source could not be downloaded.
+     */
+    private Download downloadAhead(HostsSource source) throws IOException {
+        if (source.getType() != URL) {
+            return Download.NOT_DOWNLOADED;
+        }
+        long limit = Runtime.getRuntime().maxMemory() / 8;
+        if (source.getSize() * BYTES_PER_HOST_ESTIMATE > limit) {
+            return Download.NOT_DOWNLOADED;
+        }
+        String hostsFileUrl = source.getUrl();
+        Timber.v("Downloading hosts file ahead: %s.", hostsFileUrl);
+        Request request = getRequestFor(source).build();
+        try (Response response = getHttpClient().newCall(request).execute()) {
+            if (response.code() == HTTP_NOT_MODIFIED) {
+                return Download.NOT_MODIFIED;
+            }
+            // An error page is not a hosts list.
+            if (!response.isSuccessful()) {
+                throw new SourceHttpException(response.code());
+            }
+            ResponseBody body = requireNonNull(response.body());
+            BufferedSource content = body.source();
+            // Larger than the limit after all: it is downloaded again while it is stored.
+            if (content.request(limit + 1)) {
+                Timber.i("Source %s is too large to be downloaded ahead.", hostsFileUrl);
+                return Download.NOT_DOWNLOADED;
+            }
+            // Moved rather than copied: the source is held in memory once.
+            Buffer bytes = new Buffer();
+            content.readAll(bytes);
+            return Download.downloaded(bytes, body.contentType(), response.header(ENTITY_TAG_HEADER));
+        } catch (IOException e) {
+            throw new IOException("Exception while downloading hosts file from " + hostsFileUrl + ".", e);
+        }
+    }
+
+    /**
+     * Take what was downloaded ahead for a source, waiting for it if needed.
+     *
+     * @throws IOException If the source could not be downloaded.
+     */
+    private static Download takeDownload(AheadRunner<HostsSource, Download> downloads, int index)
+            throws IOException {
+        try {
+            return downloads.take(index);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException) {
+                throw (IOException) cause;
+            }
+            if (cause instanceof SecurityException) {
+                throw (SecurityException) cause;
+            }
+            throw new IOException("Failed to download hosts source.", cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            InterruptedIOException exception = new InterruptedIOException("Interrupted while downloading hosts source.");
+            exception.initCause(e);
+            throw exception;
+        }
+    }
+
+    /**
+     * Store a source downloaded ahead.
+     *
+     * @param source   The source.
+     * @param download What was downloaded for it.
+     * @throws IOException If the source could not be read or stored.
+     */
+    private void storeDownload(HostsSource source, Download download) throws IOException {
+        String hostsFileUrl = source.getUrl();
+        // Decoded as the response would have been: by its declared charset or its byte order mark.
+        ResponseBody body = ResponseBody.create(download.bytes, download.contentType, download.bytes.size());
+        try (Reader reader = body.charStream();
+             BufferedReader bufferedReader = new BufferedReader(reader)) {
+            parseSourceInputStream(source, bufferedReader);
+        } catch (IOException e) {
+            throw new IOException("Exception while reading hosts file from " + hostsFileUrl + ".", e);
+        }
+        storeEntityTag(source, download.entityTag);
     }
 
     /**
@@ -570,7 +728,7 @@ public class SourceModel {
      * @return The HTTP client to download hosts sources.
      */
     @NonNull
-    private OkHttpClient getHttpClient() {
+    private synchronized OkHttpClient getHttpClient() {
         if (this.cachedHttpClient == null) {
             // No disk cache: every download carries the conditions of the copy already loaded,
             // so a cached response was never read back, and caching wrote each downloaded source
@@ -649,18 +807,23 @@ public class SourceModel {
             }
             // Parse source
             parseSourceInputStream(source, bufferedReader);
-            // Extract ETag if present. Stored only once the source was read whole: a tag stored
-            // before a failed read would make the server answer "not modified" next time, and the
-            // source would keep its previous hosts until it changed again.
-            String entityTag = response.header(ENTITY_TAG_HEADER);
-            if (entityTag != null) {
-                if (entityTag.startsWith(WEAK_ENTITY_TAG_PREFIX)) {
-                    entityTag = entityTag.substring(WEAK_ENTITY_TAG_PREFIX.length());
-                }
-                this.hostsSourceDao.updateEntityTag(source.getId(), entityTag);
-            }
+            storeEntityTag(source, response.header(ENTITY_TAG_HEADER));
         } catch (IOException e) {
             throw new IOException("Exception while downloading hosts file from " + hostsFileUrl + ".", e);
+        }
+    }
+
+    /**
+     * Store the entity tag of a source download, if it had one. Stored only once the source was
+     * read whole: a tag stored before a failed read would make the server answer "not modified"
+     * next time, and the source would keep its previous hosts until it changed again.
+     */
+    private void storeEntityTag(HostsSource source, @Nullable String entityTag) {
+        if (entityTag != null) {
+            if (entityTag.startsWith(WEAK_ENTITY_TAG_PREFIX)) {
+                entityTag = entityTag.substring(WEAK_ENTITY_TAG_PREFIX.length());
+            }
+            this.hostsSourceDao.updateEntityTag(source.getId(), entityTag);
         }
     }
 
@@ -722,5 +885,53 @@ public class SourceModel {
         String state = this.context.getString(stateResId, details);
         Timber.d("Source model state: %s.", state);
         this.state.postValue(state);
+    }
+
+    /**
+     * Gives what was downloaded ahead for a source.
+     */
+    private interface DownloadSupplier {
+        Download get() throws IOException;
+    }
+
+    /**
+     * What downloading a source ahead gave.
+     */
+    private static final class Download {
+        static final Download NOT_DOWNLOADED = new Download(Kind.NOT_DOWNLOADED, null, null, null);
+        static final Download NOT_MODIFIED = new Download(Kind.NOT_MODIFIED, null, null, null);
+
+        final Kind kind;
+        final Buffer bytes;
+        @Nullable
+        final MediaType contentType;
+        @Nullable
+        final String entityTag;
+
+        private Download(Kind kind, Buffer bytes, @Nullable MediaType contentType, @Nullable String entityTag) {
+            this.kind = kind;
+            this.bytes = bytes;
+            this.contentType = contentType;
+            this.entityTag = entityTag;
+        }
+
+        static Download downloaded(Buffer bytes, @Nullable MediaType contentType, @Nullable String entityTag) {
+            return new Download(Kind.DOWNLOADED, bytes, contentType, entityTag);
+        }
+
+        enum Kind {
+            /**
+             * The source was not downloaded ahead, and is to be downloaded while it is stored.
+             */
+            NOT_DOWNLOADED,
+            /**
+             * The source did not change since it was last downloaded.
+             */
+            NOT_MODIFIED,
+            /**
+             * The source is in memory.
+             */
+            DOWNLOADED
+        }
     }
 }
