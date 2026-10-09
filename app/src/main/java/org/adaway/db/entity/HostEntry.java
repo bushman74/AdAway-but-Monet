@@ -2,7 +2,6 @@ package org.adaway.db.entity;
 
 import androidx.annotation.NonNull;
 import androidx.room.Entity;
-import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
 /**
@@ -10,10 +9,7 @@ import androidx.room.PrimaryKey;
  *
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
-@Entity(
-        tableName = "host_entries",
-        indices = {@Index(value = "host", unique = true)}
-)
+@Entity(tableName = "host_entries")
 public class HostEntry {
     @PrimaryKey
     @NonNull

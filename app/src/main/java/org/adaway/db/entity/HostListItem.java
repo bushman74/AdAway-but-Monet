@@ -19,14 +19,16 @@ import static androidx.room.ForeignKey.CASCADE;
 @Entity(
         tableName = "hosts_lists",
         indices = {
-                @Index(value = "host"),
                 // Serves filtering the list screen by source: one source's hosts of one type, in
                 // host order, are read straight from it. It also covers every lookup by source
                 // alone, which used to have an index of its own.
                 @Index(value = {"source_id", "type", "host"}),
                 // Serves the list screen: filtering on type and ordering by host in one index
                 // avoids sorting and grouping the whole table before the first page is shown.
-                @Index(value = {"type", "host"})
+                // Holding the enabled state too, it answers the rebuild of the host entries and
+                // the host counts on its own: they read every host of a type and used to look
+                // each one up in the table only to check that state.
+                @Index(value = {"type", "host", "enabled"})
         },
         foreignKeys = @ForeignKey(
                 entity = HostsSource.class,

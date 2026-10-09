@@ -161,4 +161,22 @@ final class Migrations {
             database.execSQL("ALTER TABLE `hosts_sources` ADD COLUMN `last_update_error` TEXT");
         }
     };
+
+    /**
+     * Migration script from v11 to v12.
+     */
+    static final Migration MIGRATION_11_12 = new Migration(11, 12) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // Unused: no query looks a host up by its name across every source. Keeping it up to
+            // date took 40% of the time spent loading sources.
+            database.execSQL("DROP INDEX IF EXISTS `index_hosts_lists_host`");
+            // Replaced by one also holding the enabled state. The old one is dropped first so the
+            // new one can reuse its space.
+            database.execSQL("DROP INDEX IF EXISTS `index_hosts_lists_type_host`");
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_hosts_lists_type_host_enabled` ON `hosts_lists` (`type`, `host`, `enabled`)");
+            // A copy of the index of the primary key, kept up to date for nothing.
+            database.execSQL("DROP INDEX IF EXISTS `index_host_entries_host`");
+        }
+    };
 }

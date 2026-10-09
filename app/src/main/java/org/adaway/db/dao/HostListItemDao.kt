@@ -48,9 +48,6 @@ interface HostListItemDao {
     @Query("SELECT id, host, type, enabled, redirection, source_id, (SELECT GROUP_CONCAT(DISTINCT other.source_id) FROM hosts_lists AS other WHERE other.type = :type AND other.host = hosts_lists.host) AS source_ids FROM hosts_lists WHERE source_id = :sourceId AND type = :type AND host LIKE :query GROUP BY host ORDER BY host ASC")
     fun loadSourceList(type: Int, sourceId: Int, query: String): PagingSource<Int, ListedHost>
 
-    @get:Query("SELECT * FROM hosts_lists ORDER BY host ASC")
-    val all: List<HostListItem>
-
     @get:Query("SELECT * FROM hosts_lists WHERE source_id = 1")
     val userList: List<HostListItem>
 
