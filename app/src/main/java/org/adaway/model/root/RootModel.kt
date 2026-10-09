@@ -27,6 +27,7 @@ import org.adaway.helper.ProgressNotifications
 import org.adaway.model.error.HostErrorException
 import org.adaway.model.root.MountType.READ_ONLY
 import org.adaway.model.root.MountType.READ_WRITE
+import org.adaway.tile.DnsRecordingTileService
 import org.adaway.util.Constants.ANDROID_SYSTEM_ETC_HOSTS
 import org.adaway.util.Constants.COMMAND_CHMOD_644
 import org.adaway.util.Constants.COMMAND_CHOWN
@@ -135,12 +136,13 @@ class RootModel(context: Context) : AdBlockModel(context) {
     /**
      * Remember whether the capture is running, for whoever cannot afford to ask.
      *
-     * The quick settings tile is drawn every time the panel is expanded, far too often to run a
-     * privileged shell command for it, so it shows what was remembered here. Recording it in the
-     * model rather than in the tile keeps it true however the recording was turned on or off.
+     * The quick settings tile cannot afford to run a privileged shell command to draw itself, so
+     * it shows what was remembered here, and is asked to redraw. Recording it in the model rather
+     * than in the tile keeps it true however the recording was turned on or off.
      */
     private fun rememberRecordingState(recording: Boolean) {
         PreferenceHelper.setLastKnownDnsRecording(this.context, recording)
+        DnsRecordingTileService.requestUpdate(this.context)
     }
 
     override fun getRequests(): List<DnsRequest> = TcpdumpUtils.getRequests(this.context)

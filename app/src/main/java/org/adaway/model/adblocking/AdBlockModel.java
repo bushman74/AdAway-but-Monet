@@ -10,6 +10,7 @@ import org.adaway.helper.PreferenceHelper;
 import org.adaway.model.error.HostErrorException;
 import org.adaway.model.root.RootModel;
 import org.adaway.model.vpn.VpnModel;
+import org.adaway.tile.AdBlockingTileService;
 
 import java.util.List;
 
@@ -81,13 +82,14 @@ public abstract class AdBlockModel {
      * Remembering it as well as publishing it lets the quick settings tile draw itself without
      * building a model and opening a privileged shell, which it cannot afford to do every time the
      * panel is expanded. Going through here keeps what it draws true however the ad blocking was
-     * turned on or off.
+     * turned on or off. The tile is then asked to redraw, as it is not woken by the panel.
      *
      * @param applied {@code true} if applied, {@code false} if reverted.
      */
     protected void setApplied(boolean applied) {
         this.applied.postValue(applied);
         PreferenceHelper.setLastKnownAdBlocked(this.context, applied);
+        AdBlockingTileService.requestUpdate(this.context);
     }
 
     /**

@@ -1,5 +1,7 @@
 package org.adaway.tile
 
+import android.content.ComponentName
+import android.content.Context
 import android.service.quicksettings.Tile.STATE_ACTIVE
 import android.service.quicksettings.Tile.STATE_INACTIVE
 import android.service.quicksettings.TileService
@@ -13,6 +15,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * A quick settings tile toggling the DNS request recording.
+ *
+ * Like the ad-blocking tile, it is an active tile: the model asks it to redraw through
+ * [requestUpdate] whenever the recording starts or stops.
  */
 class DnsRecordingTileService : TileService() {
     private val toggling = AtomicBoolean(false)
@@ -22,8 +27,7 @@ class DnsRecordingTileService : TileService() {
     }
 
     override fun onStartListening() {
-        // Reading the real state runs a privileged shell command, and this is called every time
-        // the quick settings panel is expanded, so render the last known state instead.
+        // Reading the real state runs a privileged shell command, so render the last known state.
         updateTile(PreferenceHelper.getLastKnownDnsRecording(this))
     }
 
@@ -62,4 +66,25 @@ class DnsRecordingTileService : TileService() {
 
     private val model: AdBlockModel
         get() = (application as AdAwayApplication).adBlockModel
+
+    companion object {
+        /**
+         * Ask the system to redraw the tile from the remembered state, even while the quick
+         * settings panel is closed.
+         *
+         * @param context The application context.
+         */
+        @JvmStatic
+        fun requestUpdate(context: Context) {
+            try {
+                TileService.requestListeningState(
+                    context,
+                    ComponentName(context, DnsRecordingTileService::class.java)
+                )
+            } catch (exception: RuntimeException) {
+                // Redrawing the tile must never get in the way of the recording itself.
+                Timber.w(exception, "Failed to request an update of the DNS recording tile.")
+            }
+        }
+    }
 }

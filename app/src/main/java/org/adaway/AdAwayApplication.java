@@ -76,21 +76,6 @@ public class AdAwayApplication extends Application {
     }
 
     /**
-     * Get the ad block model only if it was already created.
-     * Building it opens a privileged shell, so callers that merely display a state, such as the
-     * quick settings tiles, must not trigger it.
-     *
-     * @return The common ad block model, or {@code null} if it was not created yet.
-     */
-    public AdBlockModel getAdBlockModelIfCreated() {
-        AdBlockMethod method = PreferenceHelper.getAdBlockMethod(this);
-        if (this.adBlockModel != null && this.adBlockModel.getMethod() == method) {
-            return this.adBlockModel;
-        }
-        return null;
-    }
-
-    /**
      * Get the update model.
      *
      * @return Teh common update model for the whole application.

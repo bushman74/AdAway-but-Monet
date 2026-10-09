@@ -1,9 +1,10 @@
 package org.adaway.tile
 
+import android.content.ComponentName
+import android.content.Context
 import android.service.quicksettings.Tile.STATE_ACTIVE
 import android.service.quicksettings.Tile.STATE_INACTIVE
 import android.service.quicksettings.TileService
-import androidx.lifecycle.Observer
 import org.adaway.AdAwayApplication
 import org.adaway.helper.PreferenceHelper
 import org.adaway.model.adblocking.AdBlockModel
@@ -12,40 +13,28 @@ import org.adaway.util.CoroutineDispatchers
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * A quick settings tile turning the ad blocking on and off.
+ *
+ * It is declared an active tile: the system binds it only when it is added, tapped, or asked to
+ * redraw through [requestUpdate], which the ad block model does whenever the state changes. That
+ * keeps it accurate without anything running in the background, and without being woken every
+ * time the quick settings panel is expanded.
+ */
 class AdBlockingTileService : TileService() {
     private val toggling = AtomicBoolean(false)
 
-    /**
-     * Held in a field because a method reference produces a new instance every time it is
-     * evaluated, so removing the observer with a fresh reference would never match the one that
-     * was added.
-     */
-    private val appliedObserver = Observer<Boolean> { applied ->
-        PreferenceHelper.setLastKnownAdBlocked(this, applied == true)
-        updateTile(applied == true)
-    }
-
     override fun onTileAdded() {
-        updateTile(currentState())
+        updateTile(PreferenceHelper.getLastKnownAdBlocked(this))
     }
 
     override fun onStartListening() {
-        // Render from the last known state first: building the ad block model opens a privileged
-        // shell, and this runs every time the quick settings panel is expanded.
-        updateTile(currentState())
-        createdModel?.isApplied?.observeForever(appliedObserver)
-    }
-
-    override fun onStopListening() {
-        createdModel?.isApplied?.removeObserver(appliedObserver)
+        // Draw the state the model remembered: reading the real one opens a privileged shell.
+        updateTile(PreferenceHelper.getLastKnownAdBlocked(this))
     }
 
     override fun onClick() {
         CoroutineDispatchers.ioExecutor().execute(::toggleAdBlocking)
-    }
-
-    private fun currentState(): Boolean {
-        return createdModel?.isApplied?.value ?: PreferenceHelper.getLastKnownAdBlocked(this)
     }
 
     private fun updateTile(adBlocked: Boolean) {
@@ -80,6 +69,24 @@ class AdBlockingTileService : TileService() {
     private val model: AdBlockModel
         get() = (application as AdAwayApplication).adBlockModel
 
-    private val createdModel: AdBlockModel?
-        get() = (application as AdAwayApplication).adBlockModelIfCreated
+    companion object {
+        /**
+         * Ask the system to redraw the tile from the remembered state, even while the quick
+         * settings panel is closed.
+         *
+         * @param context The application context.
+         */
+        @JvmStatic
+        fun requestUpdate(context: Context) {
+            try {
+                TileService.requestListeningState(
+                    context,
+                    ComponentName(context, AdBlockingTileService::class.java)
+                )
+            } catch (exception: RuntimeException) {
+                // Redrawing the tile must never get in the way of turning the ad blocking on or off.
+                Timber.w(exception, "Failed to request an update of the ad-blocking tile.")
+            }
+        }
+    }
 }
