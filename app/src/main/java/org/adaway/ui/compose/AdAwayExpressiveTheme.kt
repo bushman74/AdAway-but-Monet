@@ -93,7 +93,18 @@ private val AdAwayExpressiveLightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF534342),
     outline = Color(0xFF857371),
     surfaceContainer = Color(0xFFFCEAE8),
-    surfaceContainerHigh = Color(0xFFF9E4E2)
+    surfaceContainerHigh = Color(0xFFF9E4E2),
+    // The roles below were missing, so they fell back to the baseline purple scheme. They are the
+    // standard tones of this scheme's own palettes.
+    surfaceDim = Color(0xFFE9D6D5),
+    surfaceBright = Color(0xFFFFF8F7),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFFF0F0),
+    surfaceContainerHighest = Color(0xFFF1DEDD),
+    inverseSurface = Color(0xFF392E2E),
+    inverseOnSurface = Color(0xFFFFEDEC),
+    inversePrimary = Color(0xFFFFB4AB),
+    outlineVariant = Color(0xFFD7C2BF)
 )
 
 private val AdAwayExpressiveDarkColors = darkColorScheme(
@@ -117,7 +128,17 @@ private val AdAwayExpressiveDarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFD8C2BF),
     outline = Color(0xFFA08C8A),
     surfaceContainer = Color(0xFF251D1D),
-    surfaceContainerHigh = Color(0xFF302727)
+    surfaceContainerHigh = Color(0xFF302727),
+    // See the light scheme about the roles below.
+    surfaceDim = Color(0xFF1A1111),
+    surfaceBright = Color(0xFF423636),
+    surfaceContainerLowest = Color(0xFF150C0C),
+    surfaceContainerLow = Color(0xFF231919),
+    surfaceContainerHighest = Color(0xFF3E3232),
+    inverseSurface = Color(0xFFF1DEDD),
+    inverseOnSurface = Color(0xFF392E2E),
+    inversePrimary = Color(0xFFB91D1D),
+    outlineVariant = Color(0xFF524342)
 )
 
 private val AdAwayExpressiveShapes = Shapes(
