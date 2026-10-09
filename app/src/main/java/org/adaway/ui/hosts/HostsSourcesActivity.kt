@@ -30,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,10 +44,10 @@ import org.adaway.ui.compose.ExpressiveScaffold
 import org.adaway.ui.compose.ExpressiveSection
 import org.adaway.ui.compose.ExpressiveStatusDot
 import org.adaway.ui.compose.ExpressiveTopBar
+import org.adaway.ui.compose.formatCompactCount
+import org.adaway.ui.compose.formatFullCount
 import java.time.Duration
 import java.time.ZonedDateTime
-import kotlin.math.pow
-import kotlin.math.roundToInt
 
 @Composable
 internal fun HostsSourcesRoute(
@@ -56,6 +57,7 @@ internal fun HostsSourcesRoute(
 ) {
     val rootView = LocalView.current
     val sources by viewModel.hostsSources.collectAsStateWithLifecycle()
+    val blockedHostCount by viewModel.blockedHostCount.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel, rootView) {
         val applySnackbar = ApplyConfigurationSnackbar(rootView, true, true)
@@ -66,6 +68,7 @@ internal fun HostsSourcesRoute(
 
     HostsSourcesScreen(
         sources = sources,
+        blockedHostCount = blockedHostCount,
         onNavigateBack = onNavigateBack,
         onAddSource = { onEditSource(null) },
         onToggleSource = viewModel::toggleSourceEnabled,
@@ -74,19 +77,9 @@ internal fun HostsSourcesRoute(
 }
 
 @Composable
-private fun SourcesSummaryHeaderCard(sources: List<HostsSource>) {
+private fun SourcesSummaryHeaderCard(sources: List<HostsSource>, blockedHostCount: Int?) {
     val activeCount = remember(sources) { sources.count { it.isEnabled } }
     val totalCount = sources.size
-    val totalHosts = remember(sources) { sources.sumOf { if (it.isEnabled && it.size > 0) it.size else 0 } }
-    val formattedHosts = remember(totalHosts) {
-        if (totalHosts >= 1_000_000) {
-            String.format("%.1fM", totalHosts / 1_000_000f)
-        } else if (totalHosts >= 1_000) {
-            String.format("%.1fk", totalHosts / 1_000f)
-        } else {
-            totalHosts.toString()
-        }
-    }
 
     ExpressiveSection(
         containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -98,12 +91,17 @@ private fun SourcesSummaryHeaderCard(sources: List<HostsSource>) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
-            Text(
-                text = stringResource(R.string.hosts_sources_summary_blocked_hosts, formattedHosts),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            if (blockedHostCount != null) {
+                Text(
+                    text = stringResource(
+                        R.string.hosts_sources_summary_blocked_hosts,
+                        formatFullCount(blockedHostCount)
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
     }
 }
@@ -111,6 +109,7 @@ private fun SourcesSummaryHeaderCard(sources: List<HostsSource>) {
 @Composable
 private fun HostsSourcesScreen(
     sources: List<HostsSource>,
+    blockedHostCount: Int?,
     onNavigateBack: () -> Unit,
     onAddSource: () -> Unit,
     onToggleSource: (HostsSource) -> Unit,
@@ -150,7 +149,7 @@ private fun HostsSourcesScreen(
         ) {
             if (sources.isNotEmpty()) {
                 item {
-                    SourcesSummaryHeaderCard(sources = sources)
+                    SourcesSummaryHeaderCard(sources = sources, blockedHostCount = blockedHostCount)
                 }
             }
             itemsIndexed(
@@ -173,9 +172,10 @@ private fun HostsSourcesScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.hosts_source_unknown_status),
+                            text = stringResource(R.string.hosts_sources_empty),
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -332,24 +332,5 @@ private fun getSourceHostCount(source: HostsSource): String {
     if (source.size <= 0 || !source.isEnabled) {
         return ""
     }
-
-    val prefixes = arrayOf("k", "M", "G")
-    var value = source.size
-    var length = 1
-    while (value > 10) {
-        value /= 10
-        length++
-    }
-    var prefixIndex = (length - 1) / 3 - 1
-    if (prefixIndex < 0) {
-        return stringResource(R.string.hosts_count, source.size.toString())
-    }
-    if (prefixIndex >= prefixes.size) {
-        prefixIndex = prefixes.lastIndex
-        value = 13
-    } else {
-        val divisor = 10.0.pow((prefixIndex + 1) * 3.0)
-        value = (source.size / divisor).roundToInt()
-    }
-    return stringResource(R.string.hosts_count, "$value${prefixes[prefixIndex]}")
+    return stringResource(R.string.hosts_count, formatCompactCount(source.size))
 }

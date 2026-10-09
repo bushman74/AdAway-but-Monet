@@ -8,7 +8,10 @@
     <string name="hosts_peterlowe_source">Списки блокировки от Pete Lowe</string>
     <!-- List -->
     <string name="hosts_not_available">недоступен</string>
-    <string name="hosts_count">%s списки</string>
+    <string name="hosts_count">Хостов: %s</string>
+    <string name="hosts_sources_summary_active">Активных источников: %1$d из %2$d</string>
+    <string name="hosts_sources_summary_blocked_hosts">Всего заблокировано хостов: %1$s</string>
+    <string name="hosts_sources_empty">Источников пока нет. Добавьте источник кнопкой «+».</string>
     <!-- Edition dialog -->
     <string name="hosts_add_dialog_title">Добавить источник</string>
     <string name="hosts_edit_dialog_title">Редактировать источник</string>
