@@ -243,11 +243,13 @@ private fun updateSource(dao: HostsSourceDao, source: HostsSource, edit: HostsSo
     val contentChanged = source.url != edit.url ||
             source.isAllowEnabled != edit.isAllowEnabled ||
             source.isRedirectEnabled != edit.isRedirectEnabled
-    source.label = edit.label
-    source.url = edit.url
-    source.setAllowEnabled(edit.isAllowEnabled)
-    source.setRedirectEnabled(edit.isRedirectEnabled)
-    dao.update(source)
+    dao.updateDefinition(
+        source.id,
+        edit.label,
+        edit.url,
+        edit.isAllowEnabled,
+        edit.isRedirectEnabled
+    )
     if (contentChanged) {
         dao.clearProperties(source.id)
     }

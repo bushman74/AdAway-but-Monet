@@ -45,6 +45,19 @@ interface HostsSourceDao {
     @Query("SELECT * FROM hosts_sources WHERE url = :url")
     fun getByUrl(url: String): Optional<HostsSource>
 
+    /**
+     * Change what the source editor edits, and only that, so an update that ran while the editor
+     * was open keeps the dates and size it recorded.
+     */
+    @Query("UPDATE hosts_sources SET label = :label, url = :url, allowEnabled = :allowEnabled, redirectEnabled = :redirectEnabled WHERE id = :id")
+    fun updateDefinition(
+        id: Int,
+        label: String,
+        url: String,
+        allowEnabled: Boolean,
+        redirectEnabled: Boolean
+    )
+
     @get:Query("SELECT * FROM hosts_sources WHERE id != 1 ORDER BY label ASC")
     val all: List<HostsSource>
 
