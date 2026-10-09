@@ -59,7 +59,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -72,9 +71,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 
 private val AdAwayExpressiveLightColors = lightColorScheme(
     primary = Color(0xFFB71C1C),
@@ -493,81 +489,6 @@ fun ExpressiveSection(
             shape = shape,
             content = content
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ExpressiveSelectorButton(
-    label: String,
-    selectedValueLabel: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    iconRes: Int? = null
-) {
-    val arrowColor = MaterialTheme.colorScheme.onSurfaceVariant
-    Card(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = ExpressiveAsymmetricShape1,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (iconRes != null) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(ScallopedShape(8, 3.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = selectedValueLabel,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-            Canvas(modifier = Modifier.size(12.dp)) {
-                val strokeWidth = 2.dp.toPx()
-                val path = Path().apply {
-                    moveTo(0f, size.height * 0.3f)
-                    lineTo(size.width / 2f, size.height * 0.7f)
-                    lineTo(size.width, size.height * 0.3f)
-                }
-                drawPath(
-                    path = path,
-                    color = arrowColor,
-                    style = Stroke(
-                        width = strokeWidth,
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                )
-            }
-        }
     }
 }
 
