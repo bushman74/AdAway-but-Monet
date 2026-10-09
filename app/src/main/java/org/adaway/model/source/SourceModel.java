@@ -28,6 +28,7 @@ import androidx.lifecycle.MutableLiveData;
 import org.adaway.R;
 import org.adaway.db.AppDatabase;
 import org.adaway.db.HostCounts;
+import org.adaway.db.LargeDatabaseCache;
 import org.adaway.db.converter.ZonedDateTimeConverter;
 import org.adaway.db.dao.HostEntryDao;
 import org.adaway.db.dao.HostListItemDao;
@@ -420,6 +421,24 @@ public class SourceModel {
         }
         // Update state to downloading
         setState(R.string.status_retrieve);
+        LargeDatabaseCache.acquire(this.database);
+        try {
+            retrieveOutdatedSources(plan, listener, budget);
+        } finally {
+            LargeDatabaseCache.release(this.database);
+        }
+        // Mark no update available
+        this.updateAvailable.postValue(false);
+    }
+
+    /**
+     * Retrieve the sources a check found outdated, then rebuild the hosts to block.
+     */
+    private void retrieveOutdatedSources(
+            SourceUpdatePlan plan,
+            SourceUpdateListener listener,
+            UpdateBudget budget
+    ) {
         // Clear the disabled sources
         for (HostsSource source : this.hostsSourceDao.getAll()) {
             if (!source.isEnabled()) {
@@ -474,8 +493,6 @@ public class SourceModel {
         }
         // Synchronize hosts entries
         syncHostEntries();
-        // Mark no update available
-        this.updateAvailable.postValue(false);
     }
 
     /**
@@ -529,17 +546,22 @@ public class SourceModel {
      */
     public void syncHostEntries() {
         setState(R.string.status_sync_database);
-        // Run the whole rebuild as a single transaction, otherwise every statement below pays
-        // for its own commit which dominates the cost on large host lists.
-        this.database.runInTransaction(() -> {
-            int blockedCount = this.hostEntryDao.sync();
-            // Recorded in the same transaction as the rebuild it describes, so the generated hosts
-            // file can never be considered current for entries it was not built from.
-            this.metadataDao.markHostEntriesRebuilt();
-            // The counters shown on the home screen, stored with the rebuild they describe. The
-            // rebuild already counted the blocked hosts, the costly ones to count.
-            HostCounts.storeRebuilt(this.database, blockedCount);
-        });
+        LargeDatabaseCache.acquire(this.database);
+        try {
+            // Run the whole rebuild as a single transaction, otherwise every statement below pays
+            // for its own commit which dominates the cost on large host lists.
+            this.database.runInTransaction(() -> {
+                int blockedCount = this.hostEntryDao.sync();
+                // Recorded in the same transaction as the rebuild it describes, so the generated
+                // hosts file can never be considered current for entries it was not built from.
+                this.metadataDao.markHostEntriesRebuilt();
+                // The counters shown on the home screen, stored with the rebuild they describe.
+                // The rebuild already counted the blocked hosts, the costly ones to count.
+                HostCounts.storeRebuilt(this.database, blockedCount);
+            });
+        } finally {
+            LargeDatabaseCache.release(this.database);
+        }
     }
 
     /**
