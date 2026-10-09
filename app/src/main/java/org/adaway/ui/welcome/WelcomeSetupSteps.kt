@@ -591,7 +591,6 @@ fun WelcomeSupportStep(onCanProceedChange: (Boolean) -> Unit) {
                     Icon(
                         painter = painterResource(R.drawable.ic_github_32dp),
                         contentDescription = null,
-                        tint = Color.Unspecified,
                         modifier = Modifier.size(28.dp)
                     )
                 },

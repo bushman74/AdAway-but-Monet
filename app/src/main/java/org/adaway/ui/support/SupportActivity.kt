@@ -24,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -159,7 +158,6 @@ private fun SupportContent(
                 Icon(
                     painter = painterResource(R.drawable.ic_github_32dp),
                     contentDescription = null,
-                    tint = Color.Unspecified,
                     modifier = Modifier.size(28.dp)
                 )
             },
