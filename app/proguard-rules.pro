@@ -35,4 +35,9 @@
 
 ### dnsjava ###
 -dontwarn lombok.Generated
+# dnsjava registers itself as a name service and an address resolver for the JDK (Java 8 and Java
+# 18 interfaces). Android has neither, so the registrations are never used and their classes are
+# rightly missing.
 -dontwarn sun.net.spi.nameservice.NameServiceDescriptor
+-dontwarn java.net.spi.InetAddressResolverProvider
+-dontwarn org.xbill.DNS.spi.DnsjavaInetAddressResolverProvider
