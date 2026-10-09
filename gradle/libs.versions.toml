@@ -11,9 +11,9 @@ sonarqube = "7.5.0.8588"
 
 # AndroidX
 activityCompose = "1.13.0"
-composeBom = "2026.05.01"
-composeFoundation = "1.11.2"
-composeMaterial3 = "1.5.0-alpha21"
+composeBom = "2026.09.00"
+composeFoundation = "1.12.1"
+composeMaterial3 = "1.5.0-beta01"
 coroutines = "1.11.0"
 lifecycle = "2.10.0"
 navigationCompose = "2.9.8"
