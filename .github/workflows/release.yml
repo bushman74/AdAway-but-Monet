@@ -58,35 +58,34 @@ jobs:
           cp app/build/outputs/apk/release/app-release-unsigned.apk \
             "build/artifacts/AdAway-${RELEASE_TAG}-unsigned.apk"
 
+      # What changed is written for each release in .github/release-notes/<tag>.md, and goes
+      # first. Paragraphs are kept on a single line each: GitHub shows every line break.
       - name: Write the release notes
         run: |
-          cat > build/release-notes.md <<'NOTES'
-          A development build of this fork, published for testing. Expect it to move faster and
-          break more readily than the release it is based on.
+          : > build/release-notes.md
+          if [ -f ".github/release-notes/${RELEASE_TAG}.md" ]; then
+            cat ".github/release-notes/${RELEASE_TAG}.md" >> build/release-notes.md
+            printf '\n---\n\n' >> build/release-notes.md
+          fi
+          cat >> build/release-notes.md <<'NOTES'
+          A development build of this fork, published for testing. Expect it to move faster and break more readily than the release it is based on.
 
           ## The APK is not signed
 
-          The build is produced without any signing keys, so it carries no signature and no device
-          will install it as it is. Sign it yourself with your own key before installing:
+          The build is produced without any signing keys, so it carries no signature and no device will install it as it is. Sign it yourself with your own key before installing:
 
           ```sh
           zipalign -p -f 4 AdAway-TAG-unsigned.apk AdAway-aligned.apk
           apksigner sign --ks my-release.keystore --out AdAway.apk AdAway-aligned.apk
           ```
 
-          Both tools ship with the Android SDK build tools. Any key will do, including one made
-          for the purpose with `keytool`, as long as you keep it: Android will only let a later
-          build replace this one if it carries the same signature.
+          Both tools ship with the Android SDK build tools. Any key will do, including one made for the purpose with `keytool`, as long as you keep it: Android will only let a later build replace this one if it carries the same signature.
 
-          For the same reason this cannot be installed over the official AdAway, or over a build
-          signed with a different key. Uninstall the other one first, which removes its settings
-          and lists, so export a backup beforehand if you want to keep them.
+          For the same reason this cannot be installed over the official AdAway, or over a build signed with a different key. Uninstall the other one first, which removes its settings and lists, so export a backup beforehand if you want to keep them.
 
           ## Installing
 
-          Ad blocking needs either root or the VPN based method, which the application asks about
-          when it first starts. The DNS request recording needs root, and a working `tcpdump`,
-          either the one bundled here or the one your system provides.
+          Ad blocking needs either root or the VPN based method, which the application asks about when it first starts. The DNS request recording needs root, and a working `tcpdump`, either the one bundled here or the one your system provides.
           NOTES
           sed -i "s/AdAway-TAG-unsigned.apk/AdAway-${RELEASE_TAG}-unsigned.apk/" build/release-notes.md
 
