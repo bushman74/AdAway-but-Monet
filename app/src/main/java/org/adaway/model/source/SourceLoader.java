@@ -16,6 +16,9 @@ import org.adaway.db.entity.ListType;
 import org.adaway.util.RegexUtils;
 
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -23,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,14 +52,26 @@ class SourceLoader {
         this.source = hostsSource;
     }
 
-    void parse(BufferedReader reader, AppDatabase database, HostListItemDao hostListItemDao) {
+    /**
+     * Parse a source and replace its hosts with the ones read.
+     *
+     * The previous hosts are replaced only once the whole source was read. When reading fails
+     * part way, for instance because the connection drops, nothing is changed and the failure is
+     * thrown, so the source keeps its previous hosts and is reported as not updated.
+     *
+     * @throws IOException If the source could not be read to its end.
+     */
+    void parse(BufferedReader reader, AppDatabase database, HostListItemDao hostListItemDao)
+            throws IOException {
         // Create batch
         int parserCount = 3;
         LinkedBlockingQueue<String> hostsLineQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
         LinkedBlockingQueue<HostListItem> hostsListItemQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-        SourceReader sourceReader = new SourceReader(reader, hostsLineQueue, parserCount);
+        AtomicReference<Throwable> readFailure = new AtomicReference<>();
+        SourceReader sourceReader = new SourceReader(reader, hostsLineQueue, parserCount, readFailure);
         ItemInserter inserter = new ItemInserter(
-                hostsListItemQueue, database, hostListItemDao, this.source.getId(), parserCount);
+                hostsListItemQueue, database, hostListItemDao, this.source.getId(), parserCount,
+                readFailure);
         ExecutorService executorService = Executors.newFixedThreadPool(
                 parserCount + 2,
                 r -> new Thread(r, TAG)
@@ -69,12 +85,21 @@ class SourceLoader {
             Integer inserted = inserterFuture.get();
             Timber.i("%s host list items inserted.", inserted);
         } catch (ExecutionException e) {
-            Timber.w(e, "Failed to parse hosts sources.");
+            Throwable cause = e.getCause();
+            if (cause instanceof SourceReadException && cause.getCause() instanceof IOException) {
+                throw (IOException) cause.getCause();
+            }
+            throw new IOException("Failed to parse hosts source.", cause);
         } catch (InterruptedException e) {
-            Timber.w(e, "Interrupted while parsing sources.");
+            // Stop the inserter too, so it rolls back instead of committing what it has so far.
+            inserterFuture.cancel(true);
             Thread.currentThread().interrupt();
+            InterruptedIOException exception = new InterruptedIOException("Interrupted while parsing hosts source.");
+            exception.initCause(e);
+            throw exception;
+        } finally {
+            executorService.shutdown();
         }
-        executorService.shutdown();
     }
 
     private static <T> void putUninterruptibly(BlockingQueue<T> queue, T item) {
@@ -95,15 +120,27 @@ class SourceLoader {
         }
     }
 
+    /**
+     * Thrown by the inserter to roll back its transaction when the source could not be read whole.
+     */
+    private static class SourceReadException extends RuntimeException {
+        private SourceReadException(Throwable cause) {
+            super(cause);
+        }
+    }
+
     private static class SourceReader implements Runnable {
         private final BufferedReader reader;
         private final BlockingQueue<String> queue;
         private final int parserCount;
+        private final AtomicReference<Throwable> failure;
 
-        private SourceReader(BufferedReader reader, BlockingQueue<String> queue, int parserCount) {
+        private SourceReader(BufferedReader reader, BlockingQueue<String> queue, int parserCount,
+                             AtomicReference<Throwable> failure) {
             this.reader = reader;
             this.queue = queue;
             this.parserCount = parserCount;
+            this.failure = failure;
         }
 
         @Override
@@ -114,9 +151,13 @@ class SourceLoader {
                 }
             } catch (InterruptedException e) {
                 Timber.w(e, "Interrupted while reading hosts source.");
+                this.failure.compareAndSet(null, e);
                 Thread.currentThread().interrupt();
             } catch (Throwable t) {
+                // Recorded before the end markers are sent, so the inserter sees it once it has
+                // received them all and rolls back rather than keeping a partial source.
                 Timber.w(t, "Failed to read hosts source.");
+                this.failure.compareAndSet(null, t);
             } finally {
                 // Send end of queue marker to parsers
                 for (int i = 0; i < this.parserCount; i++) {
@@ -244,14 +285,17 @@ class SourceLoader {
         private final HostListItemDao hostListItemDao;
         private final int sourceId;
         private final int parserCount;
+        private final AtomicReference<Throwable> readFailure;
 
         private ItemInserter(BlockingQueue<HostListItem> itemQueue, AppDatabase database,
-                             HostListItemDao hostListItemDao, int sourceId, int parserCount) {
+                             HostListItemDao hostListItemDao, int sourceId, int parserCount,
+                             AtomicReference<Throwable> readFailure) {
             this.hostListItemQueue = itemQueue;
             this.database = database;
             this.hostListItemDao = hostListItemDao;
             this.sourceId = sourceId;
             this.parserCount = parserCount;
+            this.readFailure = readFailure;
         }
 
         @Override
@@ -288,10 +332,25 @@ class SourceLoader {
                         }
                     }
                 } catch (InterruptedException e) {
-                    Timber.w(e, "Interrupted while inserted hosts list item.");
-                    queueEmptied = true;
+                    // Thrown out of the transaction, which rolls it back: the source keeps its
+                    // previous hosts rather than the part inserted so far.
                     Thread.currentThread().interrupt();
+                    InterruptedIOException exception = new InterruptedIOException("Interrupted while inserting hosts list items.");
+                    exception.initCause(e);
+                    throw new SourceReadException(exception);
                 }
+            }
+            // A source that could not be read to its end is not kept: throwing rolls back the
+            // transaction, so the previous hosts of the source stay in place.
+            Throwable failure = this.readFailure.get();
+            if (failure instanceof UncheckedIOException) {
+                // How reading the lines of a source reports the I/O failure underneath.
+                failure = failure.getCause();
+            }
+            if (failure != null) {
+                throw new SourceReadException(failure instanceof IOException
+                        ? failure
+                        : new IOException("Failed to read hosts source.", failure));
             }
             // Flush current batch
             HostListItem[] remaining = new HostListItem[cacheSize];

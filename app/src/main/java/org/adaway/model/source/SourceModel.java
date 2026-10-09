@@ -629,7 +629,11 @@ public class SourceModel {
             if (!response.isSuccessful()) {
                 throw new SourceHttpException(response.code());
             }
-            // Extract ETag if present
+            // Parse source
+            parseSourceInputStream(source, bufferedReader);
+            // Extract ETag if present. Stored only once the source was read whole: a tag stored
+            // before a failed read would make the server answer "not modified" next time, and the
+            // source would keep its previous hosts until it changed again.
             String entityTag = response.header(ENTITY_TAG_HEADER);
             if (entityTag != null) {
                 if (entityTag.startsWith(WEAK_ENTITY_TAG_PREFIX)) {
@@ -637,8 +641,6 @@ public class SourceModel {
                 }
                 this.hostsSourceDao.updateEntityTag(source.getId(), entityTag);
             }
-            // Parse source
-            parseSourceInputStream(source, bufferedReader);
         } catch (IOException e) {
             throw new IOException("Exception while downloading hosts file from " + hostsFileUrl + ".", e);
         }
@@ -671,8 +673,10 @@ public class SourceModel {
      *
      * @param hostsSource The host source to parse.
      * @param reader      The host source reader.
+     * @throws IOException If the source could not be read to its end. Its previous hosts are kept.
      */
-    private void parseSourceInputStream(HostsSource hostsSource, BufferedReader reader) {
+    private void parseSourceInputStream(HostsSource hostsSource, BufferedReader reader)
+            throws IOException {
         setState(R.string.status_parse_source, hostsSource.getLabel());
         long startTime = System.currentTimeMillis();
         new SourceLoader(hostsSource).parse(reader, this.database, this.hostListItemDao);
