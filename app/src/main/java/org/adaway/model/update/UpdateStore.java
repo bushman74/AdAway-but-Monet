@@ -1,17 +1,14 @@
 package org.adaway.model.update;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 
+import androidx.core.content.pm.PackageInfoCompat;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-import static android.content.pm.PackageManager.GET_SIGNATURES;
-import static android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES;
-import static android.os.Build.VERSION.SDK_INT;
-import static android.os.Build.VERSION_CODES.P;
 
 import timber.log.Timber;
 
@@ -53,24 +50,16 @@ public enum UpdateStore {
      * @param context The application context.
      * @return The application store, {@link #UNKNOWN} if store can't be defined.
      */
-    @SuppressLint("PackageManagerGetSignatures")
     public static UpdateStore getApkStore(Context context) {
         PackageManager packageManager = context.getPackageManager();
         String packageName = context.getPackageName();
         Signature[] signatures;
         try {
-            if (SDK_INT >= P) {
-                signatures = packageManager.getPackageInfo(
-                        packageName,
-                        GET_SIGNING_CERTIFICATES
-                ).signingInfo.getSigningCertificateHistory();
-            } else {
-                // Signatures are not used for security reason. Only to guess the flavor of the app.
-                signatures = packageManager.getPackageInfo(
-                        packageName,
-                        GET_SIGNATURES
-                ).signatures;
-            }
+            // Signatures are not used for security reason. Only to guess the flavor of the app.
+            // The compat helper reads them the way each Android version allows, so the API
+            // deprecated since Android 9 is not called here.
+            signatures = PackageInfoCompat.getSignatures(packageManager, packageName)
+                    .toArray(new Signature[0]);
         } catch (PackageManager.NameNotFoundException e) {
             Timber.w(e, "Failed to get application package info.");
             return UpdateStore.UNKNOWN;
