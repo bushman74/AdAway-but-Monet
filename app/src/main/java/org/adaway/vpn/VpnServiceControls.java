@@ -9,11 +9,11 @@ import static org.adaway.vpn.VpnStatus.STOPPED;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 
 import org.adaway.helper.PreferenceHelper;
 
-import java.util.Arrays;
-import java.util.Objects;
 
 /**
  * This utility class allows controlling (start and stop) the AdAway VPN service.
@@ -35,7 +35,7 @@ public final class VpnServiceControls {
      * @return {@code true} if the VPN service is currently running, {@code false} otherwise.
      */
     public static boolean isRunning(Context context) {
-        boolean networkVpnCapability = checkAnyNetworkVpnCapability(context);
+        boolean networkVpnCapability = checkActiveNetworkVpnCapability(context);
         VpnStatus status = PreferenceHelper.getVpnServiceStatus(context);
         if (status.isStarted() && !networkVpnCapability) {
             status = STOPPED;
@@ -90,11 +90,18 @@ public final class VpnServiceControls {
         context.startService(intent);
     }
 
-    private static boolean checkAnyNetworkVpnCapability(Context context) {
+    /**
+     * Check whether the network this app uses goes through a VPN. AdAway never excludes itself
+     * from its own VPN, so while that runs it is the app's active network. Asking about it needs
+     * none of the deprecated list of every network.
+     */
+    private static boolean checkActiveNetworkVpnCapability(Context context) {
         ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
-        return Arrays.stream(connectivityManager.getAllNetworks())
-                .map(connectivityManager::getNetworkCapabilities)
-                .filter(Objects::nonNull)
-                .anyMatch(networkCapabilities -> networkCapabilities.hasTransport(TRANSPORT_VPN));
+        Network activeNetwork = connectivityManager.getActiveNetwork();
+        if (activeNetwork == null) {
+            return false;
+        }
+        NetworkCapabilities capabilities = connectivityManager.getNetworkCapabilities(activeNetwork);
+        return capabilities != null && capabilities.hasTransport(TRANSPORT_VPN);
     }
 }

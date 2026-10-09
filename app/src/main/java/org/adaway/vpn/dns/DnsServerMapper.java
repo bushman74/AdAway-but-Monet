@@ -14,6 +14,7 @@ import android.net.NetworkCapabilities;
 import android.net.VpnService;
 
 import org.adaway.helper.PreferenceHelper;
+import org.adaway.vpn.KnownNetworks;
 
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -133,27 +134,28 @@ public class DnsServerMapper {
      */
     private List<InetAddress> getNetworkDnsServers(Context context) {
         ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
-        dumpNetworkInfo(connectivityManager);
+        dumpNetworkInfo(context, connectivityManager);
         Network activeNetwork = connectivityManager.getActiveNetwork();
         if (activeNetwork == null) {
-            return getAnyNonVpnNetworkDns(connectivityManager);
+            return getAnyNonVpnNetworkDns(context, connectivityManager);
         } else if (isNotVpnNetwork(connectivityManager, activeNetwork)) {
             Timber.d("Get DNS servers from active network %s", activeNetwork);
             return getNetworkDnsServers(connectivityManager, activeNetwork);
         } else {
-            return getDnsFromNonVpnNetworkWithMatchingTransportType(connectivityManager, activeNetwork);
+            return getDnsFromNonVpnNetworkWithMatchingTransportType(context, connectivityManager, activeNetwork);
         }
     }
 
     /**
      * Dump all network properties to logs.
      *
+     * @param context             The application context.
      * @param connectivityManager The connectivity manager.
      */
-    private void dumpNetworkInfo(ConnectivityManager connectivityManager) {
+    private void dumpNetworkInfo(Context context, ConnectivityManager connectivityManager) {
         Network activeNetwork = connectivityManager.getActiveNetwork();
         Timber.d("Dumping network and dns configuration:");
-        for (Network network : connectivityManager.getAllNetworks()) {
+        for (Network network : KnownNetworks.all(context)) {
             NetworkCapabilities networkCapabilities = connectivityManager.getNetworkCapabilities(network);
             boolean cellular = networkCapabilities != null && networkCapabilities.hasTransport(TRANSPORT_CELLULAR);
             boolean wifi = networkCapabilities != null && networkCapabilities.hasTransport(TRANSPORT_WIFI);
@@ -177,11 +179,12 @@ public class DnsServerMapper {
     /**
      * Get the DNS server addresses of any network without VPN capability.
      *
+     * @param context             The application context.
      * @param connectivityManager The connectivity manager.
      * @return The DNS server addresses, an empty collection if no applicable DNS server found.
      */
-    private List<InetAddress> getAnyNonVpnNetworkDns(ConnectivityManager connectivityManager) {
-        for (Network network : connectivityManager.getAllNetworks()) {
+    private List<InetAddress> getAnyNonVpnNetworkDns(Context context, ConnectivityManager connectivityManager) {
+        for (Network network : KnownNetworks.all(context)) {
             if (isNotVpnNetwork(connectivityManager, network)) {
                 List<InetAddress> dnsServers = getNetworkDnsServers(connectivityManager, network);
                 if (!dnsServers.isEmpty()) {
@@ -196,11 +199,13 @@ public class DnsServerMapper {
     /**
      * Get the DNS server addresses of a network with the same transport type as the active network except VPN.
      *
+     * @param context             The application context.
      * @param connectivityManager The connectivity manager.
      * @param activeNetwork       The active network to filter similar transport type.
      * @return The DNS server addresses, an empty collection if no applicable DNS server found.
      */
     private List<InetAddress> getDnsFromNonVpnNetworkWithMatchingTransportType(
+            Context context,
             ConnectivityManager connectivityManager,
             Network activeNetwork
     ) {
@@ -216,7 +221,7 @@ public class DnsServerMapper {
             activeNetworkTransport = TRANSPORT_WIFI;
         }
         // Check all network to find one without VPN and matching transport
-        for (Network network : connectivityManager.getAllNetworks()) {
+        for (Network network : KnownNetworks.all(context)) {
             NetworkCapabilities networkCapabilities = connectivityManager.getNetworkCapabilities(network);
             if (networkCapabilities == null) {
                 continue;
