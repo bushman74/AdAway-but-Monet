@@ -357,10 +357,11 @@ class SourceLoader {
     }
 
     private HostListItem parseAllowListItem(String line) {
-        // Extract hostname
-        int indexOf = line.indexOf('#');
-        if (indexOf == 1) {
-            line = line.substring(0, indexOf);
+        // Drop a comment ending the line, as hosts lines do. A line starting with one was skipped
+        // already, and one left empty is rejected as an invalid host name.
+        int commentStart = line.indexOf('#');
+        if (commentStart != -1) {
+            line = line.substring(0, commentStart);
         }
         line = line.trim();
         // Create item

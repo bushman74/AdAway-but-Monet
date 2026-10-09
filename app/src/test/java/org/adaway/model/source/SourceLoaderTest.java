@@ -1,5 +1,8 @@
 package org.adaway.model.source;
 
+import org.adaway.db.entity.HostListItem;
+import org.adaway.db.entity.HostsSource;
+import org.adaway.db.entity.ListType;
 import org.adaway.util.RegexUtils;
 import org.junit.Test;
 
@@ -126,6 +129,60 @@ public class SourceLoaderTest {
         assertNull(splitHostsLine("0.0.0.0 # no host"));
         assertNull(splitHostsLine("0.0.0.0#example.com"));
         assertNull(splitHostsLine(""));
+    }
+
+    @Test
+    public void readsCommentsInBlockedLists() {
+        SourceLoader loader = loader(false, false);
+        assertHost(loader.parseLine("0.0.0.0 example.com"), ListType.BLOCKED, "example.com", null);
+        assertHost(loader.parseLine("0.0.0.0 example.com # note"), ListType.BLOCKED, "example.com", null);
+        assertHost(loader.parseLine("0.0.0.0 example.com#note"), ListType.BLOCKED, "example.com", null);
+        assertHost(loader.parseLine("127.0.0.1\texample.com\t# note # more"), ListType.BLOCKED, "example.com", null);
+        assertNull(loader.parseLine("# 0.0.0.0 example.com"));
+        assertNull(loader.parseLine("  # 0.0.0.0 example.com"));
+        assertNull(loader.parseLine("0.0.0.0 # example.com"));
+        assertNull(loader.parseLine("0.0.0.0#example.com"));
+    }
+
+    @Test
+    public void readsCommentsInRedirectedLists() {
+        SourceLoader loader = loader(false, true);
+        assertHost(loader.parseLine("10.0.0.1 example.com # note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
+        assertHost(loader.parseLine("10.0.0.1 example.com#note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
+        assertNull(loader.parseLine("# 10.0.0.1 example.com"));
+        assertNull(loader.parseLine("10.0.0.1 # example.com"));
+    }
+
+    @Test
+    public void readsCommentsInAllowLists() {
+        SourceLoader loader = loader(true, false);
+        assertHost(loader.parseLine("example.com"), ListType.ALLOWED, "example.com", null);
+        // A comment ending the line is dropped, so the host before it is kept.
+        assertHost(loader.parseLine("example.com # note"), ListType.ALLOWED, "example.com", null);
+        assertHost(loader.parseLine("example.com#note"), ListType.ALLOWED, "example.com", null);
+        assertHost(loader.parseLine("\t*.example.com\t# wildcard # note"), ListType.ALLOWED, "*.example.com", null);
+        // A line starting with one is a comment.
+        assertNull(loader.parseLine("# example.com"));
+        assertNull(loader.parseLine("   # example.com"));
+        assertNull(loader.parseLine("#"));
+        assertNull(loader.parseLine(""));
+    }
+
+    private static SourceLoader loader(boolean allowEnabled, boolean redirectEnabled) {
+        HostsSource source = new HostsSource();
+        source.setId(3);
+        source.setAllowEnabled(allowEnabled);
+        source.setRedirectEnabled(redirectEnabled);
+        return new SourceLoader(source);
+    }
+
+    private static void assertHost(HostListItem item, ListType type, String host, String redirection) {
+        assertNotNull("The line must list a host.", item);
+        assertEquals(type, item.getType());
+        assertEquals(host, item.getHost());
+        assertEquals(redirection, item.getRedirection());
+        assertEquals(3, item.getSourceId());
+        assertTrue(item.isEnabled());
     }
 
     @Test
