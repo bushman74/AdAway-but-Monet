@@ -89,34 +89,28 @@ internal fun AdAwayNavHost(
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        // Material's shared axis transition for moving forward and back: a short slide with a
-        // cross-fade, rather than whole screens sliding across each other.
         enterTransition = {
             slideIntoContainer(
                 towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS),
-                initialOffset = { width -> width / SHARED_AXIS_OFFSET_DIVISOR }
+                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
             ) + fadeIn(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
         },
         exitTransition = {
             slideOutOfContainer(
                 towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS),
-                targetOffset = { width -> width / SHARED_AXIS_OFFSET_DIVISOR }
+                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
             ) + fadeOut(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
         },
         popEnterTransition = {
             slideIntoContainer(
                 towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS),
-                initialOffset = { width -> width / SHARED_AXIS_OFFSET_DIVISOR }
+                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
             ) + fadeIn(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
         },
         popExitTransition = {
             slideOutOfContainer(
                 towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS),
-                targetOffset = { width -> width / SHARED_AXIS_OFFSET_DIVISOR }
+                animationSpec = tween(NAVIGATION_ANIMATION_MILLIS)
             ) + fadeOut(animationSpec = tween(NAVIGATION_ANIMATION_MILLIS))
         }
     ) {
@@ -330,9 +324,4 @@ private fun HostErrorDialog(
     )
 }
 
-private const val NAVIGATION_ANIMATION_MILLIS = 300
-
-/**
- * How far a screen slides as it comes and goes, as a fraction of the width: a tenth.
- */
-private const val SHARED_AXIS_OFFSET_DIVISOR = 10
+private const val NAVIGATION_ANIMATION_MILLIS = 220
