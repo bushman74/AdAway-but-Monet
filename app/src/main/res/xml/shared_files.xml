@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The files the app hands to other apps through its file provider. -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

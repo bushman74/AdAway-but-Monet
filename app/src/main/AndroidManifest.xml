@@ -113,6 +113,17 @@
                 android:value="true" />
         </service>
 
+        <!-- Shares files with other apps, such as the copy of the hosts file opened for viewing. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
+
         <receiver
             android:name=".broadcast.BootReceiver"
             android:exported="true">

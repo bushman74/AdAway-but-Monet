@@ -4,6 +4,7 @@
     <!-- Hosts install category -->
     <string name="pref_hosts_installation">Установка хостов</string>
     <string name="pref_root_open_hosts">Открыть файл hosts</string>
+    <string name="pref_root_open_hosts_failed">Не удалось прочитать файл hosts.</string>
     <string name="pref_apply_method">Путь к файлу hosts</string>
     <string name="pref_apply_method_summary">Прочитайте Справку перед использованием этой функции</string>
     <string-array name="pref_apply_method_entries">

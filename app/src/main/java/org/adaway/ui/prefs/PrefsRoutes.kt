@@ -13,10 +13,10 @@ import android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
 import android.provider.Settings.ACTION_SECURITY_SETTINGS
 import android.provider.Settings.EXTRA_APP_PACKAGE
 import android.view.ContextThemeWrapper
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.annotation.StringRes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -41,17 +42,18 @@ import org.adaway.R
 import org.adaway.model.adblocking.AdBlockMethod
 import org.adaway.model.backup.BackupExporter
 import org.adaway.model.backup.BackupImporter
-import org.adaway.util.Constants.ANDROID_SYSTEM_ETC_HOSTS
 import org.adaway.util.Constants.PREFS_NAME
 import org.adaway.util.WebServerUtils.TEST_URL
 import org.adaway.util.WebServerUtils.copyCertificate
 import org.adaway.util.WebServerUtils.installCertificate
 import org.adaway.vpn.VpnServiceControls
-import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 internal enum class PrefsDestination(@param:StringRes @field:StringRes val titleRes: Int) {
@@ -163,14 +165,7 @@ private fun PrefsRootRoute(viewModel: PrefsViewModel) {
     var redirectionDialog by remember { mutableStateOf<RedirectionDialogState?>(null) }
     var showCertificateDialog by rememberSaveable { mutableStateOf(false) }
     var missingAppRequest by remember { mutableStateOf<MissingAppRequest?>(null) }
-    val openHostsFileLauncher = rememberLauncherForActivityResult(StartActivityForResult()) {
-        try {
-            val hostFile = File(ANDROID_SYSTEM_ETC_HOSTS).canonicalFile
-            org.adaway.model.root.ShellUtils.remountPartition(hostFile, org.adaway.model.root.MountType.READ_ONLY)
-        } catch (exception: IOException) {
-            Timber.e(exception, "Failed to get hosts canonical file.")
-        }
-    }
+    val coroutineScope = rememberCoroutineScope()
     val certificateLauncher = rememberLauncherForActivityResult(
         CreateDocument(CERTIFICATE_MIME_TYPE)
     ) { uri ->
@@ -195,21 +190,20 @@ private fun PrefsRootRoute(viewModel: PrefsViewModel) {
         webServerIcon = viewModel.webServerIcon,
         webServerStateSummaryRes = viewModel.webServerStateSummaryRes,
         onOpenHostsFile = {
-            try {
-                val hostFile = File(ANDROID_SYSTEM_ETC_HOSTS).canonicalFile
-                val remount = !org.adaway.model.root.ShellUtils.isWritable(hostFile) && org.adaway.model.root.ShellUtils.remountPartition(hostFile, org.adaway.model.root.MountType.READ_WRITE)
-                val intent = Intent()
-                    .setAction(Intent.ACTION_VIEW)
-                    .setDataAndType(Uri.parse("file://${hostFile.absolutePath}"), "text/plain")
-                if (remount) {
-                    openHostsFileLauncher.launch(intent)
-                } else {
-                    context.startActivity(intent)
+            coroutineScope.launch {
+                val uri = try {
+                    withContext(Dispatchers.IO) { HostsFileViewer.copyHostsFile(context) }
+                } catch (exception: IOException) {
+                    Timber.e(exception, "Failed to copy the hosts file.")
+                    Toast.makeText(context, R.string.pref_root_open_hosts_failed, Toast.LENGTH_LONG)
+                        .show()
+                    return@launch
                 }
-            } catch (exception: IOException) {
-                Timber.e(exception, "Failed to get hosts canonical file.")
-            } catch (_: ActivityNotFoundException) {
-                missingAppRequest = textEditorMissingRequest()
+                try {
+                    context.startActivity(HostsFileViewer.viewIntent(uri))
+                } catch (_: ActivityNotFoundException) {
+                    missingAppRequest = textEditorMissingRequest()
+                }
             }
         },
         onNeverRebootChanged = viewModel::updateNeverReboot,
