@@ -4,10 +4,10 @@ appCode = "60104"
 appName = "6.1.6"
 
 # Build plugins
-androidGradle = "9.2.1"
-kotlin = "2.4.10"
-ksp = "2.3.9"
-sonarqube = "7.3.1.8318"
+androidGradle = "9.4.1"
+kotlin = "2.4.20"
+ksp = "2.3.12"
+sonarqube = "7.5.0.8588"
 
 # AndroidX
 activityCompose = "1.13.0"
