@@ -8,6 +8,8 @@ import static org.adaway.util.Constants.LOCALHOST_HOSTNAME;
 import static org.adaway.util.Constants.LOCALHOST_IPV4;
 import static org.adaway.util.Constants.LOCALHOST_IPV6;
 
+import androidx.annotation.Nullable;
+
 import org.adaway.db.AppDatabase;
 import org.adaway.db.dao.HostListItemDao;
 import org.adaway.db.entity.HostListItem;
@@ -18,15 +20,14 @@ import org.adaway.util.RegexUtils;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,14 +36,30 @@ import timber.log.Timber;
 /**
  * This class is an {@link HostsSource} loader.<br>
  * It parses a source and loads it to database.
+ * <p>
+ * Reading and parsing run on a thread of their own, while the calling thread stores the hosts, so
+ * the download and the database writes overlap. The hosts are handed over in batches rather than
+ * one by one: a hand-over costs about as much as parsing a line, so doing it per line used to take
+ * longer than the parsing itself.
  *
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
 class SourceLoader {
     private static final String TAG = "SourceLoader";
-    private static final String END_OF_QUEUE_MARKER = "#EndOfQueueMarker";
-    private static final int INSERT_BATCH_SIZE = 2_000;
-    private static final int QUEUE_CAPACITY = 10_000;
+    /**
+     * The number of hosts handed over, then inserted, at a time.
+     */
+    static final int BATCH_SIZE = 1_000;
+    /**
+     * The number of batches parsed ahead of the ones being stored. It bounds the memory held by a
+     * source being loaded to a few thousand hosts, however large the source is.
+     */
+    private static final int QUEUE_CAPACITY = 16;
+    /**
+     * How long the storing thread waits for a batch before checking the parsing one is still
+     * running, so a parser that died without a word can never leave it waiting forever.
+     */
+    private static final long POLL_TIMEOUT_SECONDS = 1;
     private static final String HOSTS_PARSER = "^\\s*([^#\\s]+)\\s+([^#\\s]+).*$";
     static final Pattern HOSTS_PARSER_PATTERN = Pattern.compile(HOSTS_PARSER);
 
@@ -63,302 +80,272 @@ class SourceLoader {
      */
     void parse(BufferedReader reader, AppDatabase database, HostListItemDao hostListItemDao)
             throws IOException {
-        // Create batch
-        int parserCount = 3;
-        LinkedBlockingQueue<String> hostsLineQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-        LinkedBlockingQueue<HostListItem> hostsListItemQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-        AtomicReference<Throwable> readFailure = new AtomicReference<>();
-        SourceReader sourceReader = new SourceReader(reader, hostsLineQueue, parserCount, readFailure);
-        ItemInserter inserter = new ItemInserter(
-                hostsListItemQueue, database, hostListItemDao, this.source.getId(), parserCount,
-                readFailure);
-        ExecutorService executorService = Executors.newFixedThreadPool(
-                parserCount + 2,
-                r -> new Thread(r, TAG)
-        );
-        executorService.execute(sourceReader);
-        for (int i = 0; i < parserCount; i++) {
-            executorService.execute(new HostListItemParser(this.source, hostsLineQueue, hostsListItemQueue));
-        }
-        Future<Integer> inserterFuture = executorService.submit(inserter);
-        try {
-            Integer inserted = inserterFuture.get();
-            Timber.i("%s host list items inserted.", inserted);
-        } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof SourceReadException && cause.getCause() instanceof IOException) {
-                throw (IOException) cause.getCause();
+        int sourceId = this.source.getId();
+        int inserted = load(reader, new Store() {
+            @Override
+            public void runInTransaction(Runnable body) {
+                database.runInTransaction(body);
             }
-            throw new IOException("Failed to parse hosts source.", cause);
-        } catch (InterruptedException e) {
-            // Stop the inserter too, so it rolls back instead of committing what it has so far.
-            inserterFuture.cancel(true);
-            Thread.currentThread().interrupt();
-            InterruptedIOException exception = new InterruptedIOException("Interrupted while parsing hosts source.");
-            exception.initCause(e);
-            throw exception;
+
+            @Override
+            public void clear() {
+                hostListItemDao.clearSourceHosts(sourceId);
+            }
+
+            @Override
+            public void insert(List<HostListItem> items) {
+                hostListItemDao.insert(items);
+            }
+        });
+        Timber.i("%s host list items inserted.", inserted);
+    }
+
+    /**
+     * Read the source and store its hosts.
+     *
+     * @param reader The source content.
+     * @param store  Where the hosts are stored.
+     * @return The number of hosts stored.
+     * @throws IOException If the source could not be read or stored whole. Nothing is changed then.
+     */
+    int load(BufferedReader reader, Store store) throws IOException {
+        BlockingQueue<Batch> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
+        ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, TAG));
+        Future<?> parsing = executor.submit(() -> parseAll(reader, queue));
+        int[] inserted = {0};
+        try {
+            // Clear the previous hosts and insert the new ones in a single transaction, on this
+            // thread. Readers keep seeing the previous content until it commits, and throwing out
+            // of it rolls it back, so a source is either replaced whole or left as it was.
+            store.runInTransaction(() -> {
+                store.clear();
+                List<HostListItem> items;
+                while ((items = take(queue, parsing)) != null) {
+                    store.insert(items);
+                    inserted[0] += items.size();
+                }
+            });
+            return inserted[0];
+        } catch (SourceReadException e) {
+            throw e.getCause();
+        } catch (RuntimeException e) {
+            // A database failure: reported as the source failing, like a failed download, so the
+            // update goes on with the other sources.
+            throw new IOException("Failed to store hosts source.", e);
         } finally {
-            executorService.shutdown();
+            // Stops the parser when the storing ended early. Waiting for it is not needed: it
+            // stops at its next hand-over, and closing the reader ends a read in progress.
+            parsing.cancel(true);
+            executor.shutdown();
         }
     }
 
-    private static <T> void putUninterruptibly(BlockingQueue<T> queue, T item) {
-        boolean interrupted = Thread.interrupted();
+    /**
+     * Take the next batch of hosts.
+     *
+     * @return The next hosts, or {@code null} once the whole source was read.
+     * @throws SourceReadException If the source could not be read to its end.
+     */
+    @Nullable
+    private static List<HostListItem> take(BlockingQueue<Batch> queue, Future<?> parsing) {
         try {
             while (true) {
-                try {
-                    queue.put(item);
-                    return;
-                } catch (InterruptedException e) {
-                    interrupted = true;
+                Batch batch = queue.poll(POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                if (batch == null && parsing.isDone()) {
+                    // Whatever the parser handed over before ending is in the queue by now.
+                    batch = queue.poll();
+                    if (batch == null) {
+                        throw new SourceReadException(new IOException("Hosts source parser stopped unexpectedly."));
+                    }
+                }
+                if (batch != null) {
+                    if (batch.failure != null) {
+                        throw new SourceReadException(batch.failure);
+                    }
+                    return batch.items;
                 }
             }
-        } finally {
-            if (interrupted) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            InterruptedIOException exception = new InterruptedIOException("Interrupted while loading hosts source.");
+            exception.initCause(e);
+            throw new SourceReadException(exception);
+        }
+    }
+
+    /**
+     * Read and parse the whole source, handing the hosts over in batches, then the end of the
+     * source or the failure that stopped the reading.
+     */
+    private void parseAll(BufferedReader reader, BlockingQueue<Batch> queue) {
+        try {
+            List<HostListItem> items = new ArrayList<>(BATCH_SIZE);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                HostListItem item = parseLine(line);
+                if (item != null) {
+                    items.add(item);
+                    if (items.size() == BATCH_SIZE) {
+                        queue.put(new Batch(items, null));
+                        items = new ArrayList<>(BATCH_SIZE);
+                    }
+                }
+            }
+            if (!items.isEmpty()) {
+                queue.put(new Batch(items, null));
+            }
+            queue.put(Batch.END);
+        } catch (InterruptedException e) {
+            // The storing thread gave up and stopped this one: nothing waits for what follows.
+            Thread.currentThread().interrupt();
+        } catch (Throwable t) {
+            Timber.w(t, "Failed to read hosts source.");
+            IOException failure = t instanceof IOException
+                    ? (IOException) t
+                    : new IOException("Failed to read hosts source.", t);
+            try {
+                queue.put(new Batch(null, failure));
+            } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
     }
 
     /**
-     * Thrown by the inserter to roll back its transaction when the source could not be read whole.
+     * Parse a line of the source.
+     *
+     * @return The host it lists, or {@code null} for a comment, a blank or an invalid line.
+     */
+    @Nullable
+    HostListItem parseLine(String line) {
+        // Skip comments. Not logged: this runs once per source line.
+        if (line.isEmpty() || line.charAt(0) == '#') {
+            return null;
+        }
+        HostListItem item = this.source.isAllowEnabled()
+                ? parseAllowListItem(line)
+                : parseHostListItem(line);
+        if (item == null || !isRedirectionValid(item) || !isHostValid(item)) {
+            return null;
+        }
+        return item;
+    }
+
+    private HostListItem parseHostListItem(String line) {
+        Matcher matcher = HOSTS_PARSER_PATTERN.matcher(line);
+        if (!matcher.matches()) {
+            // Not logged: this runs once per source line.
+            return null;
+        }
+        // Check IP address validity or while list entry (if allowed)
+        String ip = matcher.group(1);
+        String hostname = matcher.group(2);
+        assert hostname != null;
+        // Skip localhost name
+        if (LOCALHOST_HOSTNAME.equals(hostname)) {
+            return null;
+        }
+        // check if ip is 127.0.0.1 or 0.0.0.0
+        ListType type;
+        if (LOCALHOST_IPV4.equals(ip)
+                || BOGUS_IPV4.equals(ip)
+                || LOCALHOST_IPV6.equals(ip)) {
+            type = BLOCKED;
+        } else if (this.source.isRedirectEnabled()) {
+            type = REDIRECTED;
+        } else {
+            return null;
+        }
+        HostListItem item = new HostListItem();
+        item.setType(type);
+        item.setHost(hostname);
+        item.setEnabled(true);
+        if (type == REDIRECTED) {
+            item.setRedirection(ip);
+        }
+        item.setSourceId(this.source.getId());
+        return item;
+    }
+
+    private HostListItem parseAllowListItem(String line) {
+        // Extract hostname
+        int indexOf = line.indexOf('#');
+        if (indexOf == 1) {
+            line = line.substring(0, indexOf);
+        }
+        line = line.trim();
+        // Create item
+        HostListItem item = new HostListItem();
+        item.setType(ALLOWED);
+        item.setHost(line);
+        item.setEnabled(true);
+        item.setSourceId(this.source.getId());
+        return item;
+    }
+
+    private static boolean isRedirectionValid(HostListItem item) {
+        return item.getType() != REDIRECTED || RegexUtils.isValidIP(item.getRedirection());
+    }
+
+    private static boolean isHostValid(HostListItem item) {
+        String hostname = item.getHost();
+        if (item.getType() == BLOCKED) {
+            if (hostname.indexOf('?') != -1 || hostname.indexOf('*') != -1) {
+                return false;
+            }
+            return RegexUtils.isValidHostname(hostname);
+        }
+        return RegexUtils.isValidWildcardHostname(hostname);
+    }
+
+    /**
+     * Where the hosts of a source are stored.
+     */
+    interface Store {
+        /**
+         * Run the body in a transaction, committed when it returns and rolled back when it throws.
+         */
+        void runInTransaction(Runnable body);
+
+        /**
+         * Remove every host of the source.
+         */
+        void clear();
+
+        /**
+         * Add hosts to the source.
+         */
+        void insert(List<HostListItem> items);
+    }
+
+    /**
+     * Thrown out of the transaction to roll it back when the source could not be read whole.
      */
     private static class SourceReadException extends RuntimeException {
-        private SourceReadException(Throwable cause) {
+        private SourceReadException(IOException cause) {
             super(cause);
         }
+
+        @Override
+        public synchronized IOException getCause() {
+            return (IOException) super.getCause();
+        }
     }
 
-    private static class SourceReader implements Runnable {
-        private final BufferedReader reader;
-        private final BlockingQueue<String> queue;
-        private final int parserCount;
-        private final AtomicReference<Throwable> failure;
+    /**
+     * What the parser hands over: hosts, the end of the source, or why it could not be read.
+     */
+    private static final class Batch {
+        static final Batch END = new Batch(null, null);
 
-        private SourceReader(BufferedReader reader, BlockingQueue<String> queue, int parserCount,
-                             AtomicReference<Throwable> failure) {
-            this.reader = reader;
-            this.queue = queue;
-            this.parserCount = parserCount;
+        @Nullable
+        final List<HostListItem> items;
+        @Nullable
+        final IOException failure;
+
+        Batch(@Nullable List<HostListItem> items, @Nullable IOException failure) {
+            this.items = items;
             this.failure = failure;
-        }
-
-        @Override
-        public void run() {
-            try {
-                for (String line : (Iterable<String>) this.reader.lines()::iterator) {
-                    this.queue.put(line);
-                }
-            } catch (InterruptedException e) {
-                Timber.w(e, "Interrupted while reading hosts source.");
-                this.failure.compareAndSet(null, e);
-                Thread.currentThread().interrupt();
-            } catch (Throwable t) {
-                // Recorded before the end markers are sent, so the inserter sees it once it has
-                // received them all and rolls back rather than keeping a partial source.
-                Timber.w(t, "Failed to read hosts source.");
-                this.failure.compareAndSet(null, t);
-            } finally {
-                // Send end of queue marker to parsers
-                for (int i = 0; i < this.parserCount; i++) {
-                    putUninterruptibly(this.queue, END_OF_QUEUE_MARKER);
-                }
-            }
-        }
-    }
-
-    private static class HostListItemParser implements Runnable {
-        private final HostsSource source;
-        private final BlockingQueue<String> lineQueue;
-        private final BlockingQueue<HostListItem> itemQueue;
-
-        private HostListItemParser(HostsSource source, BlockingQueue<String> lineQueue, BlockingQueue<HostListItem> itemQueue) {
-            this.source = source;
-            this.lineQueue = lineQueue;
-            this.itemQueue = itemQueue;
-        }
-
-        @Override
-        public void run() {
-            boolean allowedList = this.source.isAllowEnabled();
-            boolean endOfSource = false;
-            while (!endOfSource) {
-                try {
-                    String line = this.lineQueue.take();
-                    // Check end of queue marker
-                    //noinspection StringEquality
-                    if (line == END_OF_QUEUE_MARKER) {
-                        endOfSource = true;
-                        // Send end of queue marker to inserter
-                        HostListItem endItem = new HostListItem();
-                        endItem.setHost(line);
-                        // The inserter waits for one marker per parser, so it must always arrive.
-                        putUninterruptibly(this.itemQueue, endItem);
-                    } // Check comments
-                    else if (line.isEmpty() || line.charAt(0) == '#') {
-                        // Skip comment. Not logged: this runs once per source line.
-                    } else {
-                        HostListItem item = allowedList ? parseAllowListItem(line) : parseHostListItem(line);
-                        if (item != null && isRedirectionValid(item) && isHostValid(item)) {
-                            this.itemQueue.put(item);
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    Timber.w(e, "Interrupted while parsing hosts list item.");
-                    endOfSource = true;
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
-
-        private HostListItem parseHostListItem(String line) {
-            Matcher matcher = HOSTS_PARSER_PATTERN.matcher(line);
-            if (!matcher.matches()) {
-                // Not logged: this runs once per source line.
-                return null;
-            }
-            // Check IP address validity or while list entry (if allowed)
-            String ip = matcher.group(1);
-            String hostname = matcher.group(2);
-            assert hostname != null;
-            // Skip localhost name
-            if (LOCALHOST_HOSTNAME.equals(hostname)) {
-                return null;
-            }
-            // check if ip is 127.0.0.1 or 0.0.0.0
-            ListType type;
-            if (LOCALHOST_IPV4.equals(ip)
-                    || BOGUS_IPV4.equals(ip)
-                    || LOCALHOST_IPV6.equals(ip)) {
-                type = BLOCKED;
-            } else if (this.source.isRedirectEnabled()) {
-                type = REDIRECTED;
-            } else {
-                return null;
-            }
-            HostListItem item = new HostListItem();
-            item.setType(type);
-            item.setHost(hostname);
-            item.setEnabled(true);
-            if (type == REDIRECTED) {
-                item.setRedirection(ip);
-            }
-            item.setSourceId(this.source.getId());
-            return item;
-        }
-
-        private HostListItem parseAllowListItem(String line) {
-            // Extract hostname
-            int indexOf = line.indexOf('#');
-            if (indexOf == 1) {
-                line = line.substring(0, indexOf);
-            }
-            line = line.trim();
-            // Create item
-            HostListItem item = new HostListItem();
-            item.setType(ALLOWED);
-            item.setHost(line);
-            item.setEnabled(true);
-            item.setSourceId(this.source.getId());
-            return item;
-        }
-
-        private boolean isRedirectionValid(HostListItem item) {
-            return item.getType() != REDIRECTED || RegexUtils.isValidIP(item.getRedirection());
-        }
-
-        private boolean isHostValid(HostListItem item) {
-            String hostname = item.getHost();
-            if (item.getType() == BLOCKED) {
-                if (hostname.indexOf('?') != -1 || hostname.indexOf('*') != -1) {
-                    return false;
-                }
-                return RegexUtils.isValidHostname(hostname);
-            }
-            return RegexUtils.isValidWildcardHostname(hostname);
-        }
-    }
-
-    private static class ItemInserter implements Callable<Integer> {
-        private final BlockingQueue<HostListItem> hostListItemQueue;
-        private final AppDatabase database;
-        private final HostListItemDao hostListItemDao;
-        private final int sourceId;
-        private final int parserCount;
-        private final AtomicReference<Throwable> readFailure;
-
-        private ItemInserter(BlockingQueue<HostListItem> itemQueue, AppDatabase database,
-                             HostListItemDao hostListItemDao, int sourceId, int parserCount,
-                             AtomicReference<Throwable> readFailure) {
-            this.hostListItemQueue = itemQueue;
-            this.database = database;
-            this.hostListItemDao = hostListItemDao;
-            this.sourceId = sourceId;
-            this.parserCount = parserCount;
-            this.readFailure = readFailure;
-        }
-
-        @Override
-        public Integer call() {
-            // Clear the previous hosts and insert the new ones in a single transaction, on this
-            // thread. Readers keep seeing the previous content until it commits, so the host
-            // counters no longer drop while a source is being reloaded.
-            return this.database.runInTransaction(this::insertAll);
-        }
-
-        private Integer insertAll() {
-            this.hostListItemDao.clearSourceHosts(this.sourceId);
-            int inserted = 0;
-            int workerStopped = 0;
-            HostListItem[] batch = new HostListItem[INSERT_BATCH_SIZE];
-            int cacheSize = 0;
-            boolean queueEmptied = false;
-            while (!queueEmptied) {
-                try {
-                    HostListItem item = this.hostListItemQueue.take();
-                    // Check end of queue marker
-                    //noinspection StringEquality
-                    if (item.getHost() == END_OF_QUEUE_MARKER) {
-                        workerStopped++;
-                        if (workerStopped >= this.parserCount) {
-                            queueEmptied = true;
-                        }
-                    } else {
-                        batch[cacheSize++] = item;
-                        if (cacheSize >= batch.length) {
-                            this.hostListItemDao.insert(batch);
-                            inserted += cacheSize;
-                            cacheSize = 0;
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    // Thrown out of the transaction, which rolls it back: the source keeps its
-                    // previous hosts rather than the part inserted so far.
-                    Thread.currentThread().interrupt();
-                    InterruptedIOException exception = new InterruptedIOException("Interrupted while inserting hosts list items.");
-                    exception.initCause(e);
-                    throw new SourceReadException(exception);
-                }
-            }
-            // A source that could not be read to its end is not kept: throwing rolls back the
-            // transaction, so the previous hosts of the source stay in place.
-            Throwable failure = this.readFailure.get();
-            if (failure instanceof UncheckedIOException) {
-                // How reading the lines of a source reports the I/O failure underneath.
-                failure = failure.getCause();
-            }
-            if (failure != null) {
-                throw new SourceReadException(failure instanceof IOException
-                        ? failure
-                        : new IOException("Failed to read hosts source.", failure));
-            }
-            // Flush current batch
-            HostListItem[] remaining = new HostListItem[cacheSize];
-            System.arraycopy(batch, 0, remaining, 0, remaining.length);
-            this.hostListItemDao.insert(remaining);
-            inserted += cacheSize;
-            // Return number of inserted items
-            return inserted;
         }
     }
 }
