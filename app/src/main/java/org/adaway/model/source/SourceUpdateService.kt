@@ -179,17 +179,22 @@ object SourceUpdateService {
             // One budget for the whole run, so the check and the retrieval share it and the run
             // ends on its own terms rather than being killed part way through and started again.
             val budget = UpdateBudget()
-            val hasUpdate = try {
+            val listener = SourceModel.SourceUpdateListener { completed, total, _, retrieving ->
+                publishProgress(completed, total, retrieving)
+                reportProgress(
+                    application, completed, total,
+                    if (retrieving) {
+                        R.string.notification_update_host_progress_source
+                    } else {
+                        R.string.notification_update_host_progress_check
+                    }
+                )
+            }
+            val plan = try {
                 ProgressNotifications.report(
                     application, ProgressNotifications.Kind.UPDATE_HOSTS, null, null, false
                 )
-                model.checkForUpdate({ completed, total, _ ->
-                    publishProgress(completed, total, false)
-                    reportProgress(
-                        application, completed, total,
-                        R.string.notification_update_host_progress_check
-                    )
-                }, budget)
+                model.checkForUpdate(listener, budget)
             } catch (exception: HostErrorException) {
                 ProgressNotifications.done(application, ProgressNotifications.Kind.UPDATE_HOSTS)
                 if (runAttemptCount + 1 >= MAX_RUN_ATTEMPTS) {
@@ -200,9 +205,9 @@ object SourceUpdateService {
                 return Result.retry()
             }
 
-            if (hasUpdate) {
+            if (plan.hasUpdate()) {
                 return try {
-                    doUpdate(application, budget)
+                    doUpdate(application, plan, listener, budget)
                     Result.success()
                 } catch (exception: HostErrorException) {
                     Timber.e(exception, "Failed to apply hosts file during background update.")
@@ -233,16 +238,15 @@ object SourceUpdateService {
         }
 
         @Throws(HostErrorException::class)
-        private fun doUpdate(application: AdAwayApplication, budget: UpdateBudget) {
+        private fun doUpdate(
+            application: AdAwayApplication,
+            plan: SourceUpdatePlan,
+            listener: SourceModel.SourceUpdateListener,
+            budget: UpdateBudget
+        ) {
             if (PreferenceHelper.getAutomaticUpdateDaily(application)) {
                 try {
-                    application.sourceModel.retrieveHostsSources({ completed, total, _ ->
-                        publishProgress(completed, total, true)
-                        reportProgress(
-                            application, completed, total,
-                            R.string.notification_update_host_progress_source
-                        )
-                    }, budget)
+                    application.sourceModel.retrieveHostsSources(plan, listener, budget)
                     ProgressNotifications.report(
                         application,
                         ProgressNotifications.Kind.UPDATE_HOSTS,
@@ -281,22 +285,27 @@ object SourceUpdateService {
             ProgressNotifications.report(
                 application, ProgressNotifications.Kind.UPDATE_HOSTS, null
             )
-            return try {
-                if (!skipCheck) {
-                    val hasUpdate = application.sourceModel.checkForUpdate({ completed, total, _ ->
-                        publishProgress(completed, total, false)
-                        report(application, completed, total, R.string.notification_update_host_progress_check)
-                    }, budget)
-                    if (!hasUpdate) {
-                        return Result.success(
-                            Data.Builder().putBoolean(KEY_UP_TO_DATE, true).build()
-                        )
+            // The check and the retrieval report through one listener, so the progress shown is
+            // always that of the phase actually running.
+            val listener = SourceModel.SourceUpdateListener { completed, total, _, retrieving ->
+                publishProgress(completed, total, retrieving)
+                report(
+                    application, completed, total,
+                    if (retrieving) {
+                        R.string.notification_update_host_progress_source
+                    } else {
+                        R.string.notification_update_host_progress_check
                     }
+                )
+            }
+            return try {
+                val plan = application.sourceModel.checkForUpdate(listener, budget)
+                if (!skipCheck && !plan.hasUpdate()) {
+                    return Result.success(
+                        Data.Builder().putBoolean(KEY_UP_TO_DATE, true).build()
+                    )
                 }
-                application.sourceModel.retrieveHostsSources({ completed, total, _ ->
-                    publishProgress(completed, total, true)
-                    report(application, completed, total, R.string.notification_update_host_progress_source)
-                }, budget)
+                application.sourceModel.retrieveHostsSources(plan, listener, budget)
                 ProgressNotifications.report(
                     application,
                     ProgressNotifications.Kind.UPDATE_HOSTS,

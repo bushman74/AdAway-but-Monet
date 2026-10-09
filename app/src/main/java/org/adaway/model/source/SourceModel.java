@@ -167,63 +167,45 @@ public class SourceModel {
     }
 
     /**
-     * Check if there is update available for hosts sources.
+     * Check the enabled hosts sources for update.
      *
-     * @throws HostErrorException If the hosts sources could not be checked.
-     */
-    public boolean checkForUpdate() throws HostErrorException {
-        return checkForUpdate((completed, total, label) -> {
-        });
-    }
-
-    /**
-     * Check if there is update available for hosts sources.
-     *
-     * @param listener The listener notified of the check progress.
-     * @throws HostErrorException If the hosts sources could not be checked.
-     */
-    public boolean checkForUpdate(SourceUpdateListener listener) throws HostErrorException {
-        return checkForUpdate(listener, new UpdateBudget());
-    }
-
-    /**
-     * Check if there is update available for hosts sources.
-     *
-     * @param listener The listener notified of the check progress.
+     * @param listener The listener notified as each source is checked.
      * @param budget   What the run is allowed to spend before giving up.
-     * @throws HostErrorException If the hosts sources could not be checked.
+     * @return What the check found, for the retrieval to work from.
+     * @throws HostErrorException If the device has no connection.
      */
-    public boolean checkForUpdate(SourceUpdateListener listener, UpdateBudget budget)
+    public SourceUpdatePlan checkForUpdate(SourceUpdateListener listener, UpdateBudget budget)
             throws HostErrorException {
         // Check current connection
         if (isDeviceOffline()) {
             throw new HostErrorException(NO_CONNECTION);
         }
-        // Initialize update status
-        boolean updateAvailable = false;
+        List<HostsSource> outdatedSources = new ArrayList<>();
+        Map<Integer, ZonedDateTime> onlineModificationDates = new HashMap<>();
         // Get enabled hosts sources
         List<HostsSource> sources = this.hostsSourceDao.getEnabled();
         if (sources.isEmpty()) {
             // Return no update as no source
             this.updateAvailable.postValue(false);
-            return false;
+            return new SourceUpdatePlan(outdatedSources, onlineModificationDates);
         }
         // Update state
         setState(R.string.status_check);
         // Check each source
         ZonedDateTime now = ZonedDateTime.now();
-        int checkedSourceCount = 0;
-        for (HostsSource source : sources) {
-            if (budget.exhausted()) {
-                Timber.w("Giving up checking the sources: the run has spent its budget.");
-                throw new HostErrorException(DOWNLOAD_FAILED);
+        for (int index = 0; index < sources.size(); index++) {
+            HostsSource source = sources.get(index);
+            if (budget.timedOut()) {
+                // The sources left unchecked are left for the next run, rather than failing the
+                // whole update over them.
+                Timber.w("Stopping the check: the run has spent its time.");
+                break;
             }
             // Get URL and lastModified from db
             ZonedDateTime lastModifiedLocal = source.getLocalModificationDate();
             // Update state
             setState(R.string.status_check_source, source.getLabel());
-            listener.onSourceUpdateStarted(checkedSourceCount, sources.size(), source.getLabel());
-            checkedSourceCount++;
+            listener.onSourceUpdateStarted(index, sources.size(), source.getLabel(), false);
             // Get hosts source last update
             ZonedDateTime lastModifiedOnline = getHostsSourceLastUpdate(source);
             // Some help with debug here
@@ -238,12 +220,16 @@ public class SourceModel {
             } else {
                 this.hostsSourceDao.updateOnlineModificationDate(source.getId(), lastModifiedOnline);
             }
+            if (knownModifiedOnline != null) {
+                onlineModificationDates.put(source.getId(), knownModifiedOnline);
+            }
             // Classify the source the same way the retrieval does, so what is reported as
             // outdated is exactly what pressing update acts on.
             if (SourceUpdateStatus.needsRetrieval(lastModifiedLocal, knownModifiedOnline, now)) {
-                updateAvailable = true;
+                outdatedSources.add(source);
             }
         }
+        boolean updateAvailable = !outdatedSources.isEmpty();
         // Update statuses
         Timber.d("Update check result: %s.", updateAvailable);
         if (updateAvailable) {
@@ -252,7 +238,7 @@ public class SourceModel {
             setState(R.string.status_no_update_found);
         }
         this.updateAvailable.postValue(updateAvailable);
-        return updateAvailable;
+        return new SourceUpdatePlan(outdatedSources, onlineModificationDates);
     }
 
     /**
@@ -368,124 +354,89 @@ public class SourceModel {
     }
 
     /**
-     * A listener notified before each enabled source is retrieved.
+     * A listener notified before each source is checked or retrieved.
      */
     public interface SourceUpdateListener {
         /**
-         * Called before a source is retrieved.
+         * Called before a source is checked or retrieved.
          *
-         * @param completed The number of sources already retrieved.
-         * @param total     The total number of enabled sources to retrieve.
-         * @param label     The label of the source about to be retrieved.
+         * @param completed  The number of sources already dealt with in this phase.
+         * @param total      The number of sources the phase deals with.
+         * @param label      The label of the source about to be dealt with.
+         * @param retrieving {@code true} while retrieving the sources, {@code false} while
+         *                   checking them.
          */
-        void onSourceUpdateStarted(int completed, int total, String label);
+        void onSourceUpdateStarted(int completed, int total, String label, boolean retrieving);
     }
 
     /**
-     * Retrieve all hosts sources files to copy into a private local file.
+     * Check the hosts sources and retrieve the outdated ones.
      *
-     * @throws HostErrorException If the hosts sources could not be downloaded.
+     * @throws HostErrorException If the device has no connection.
      */
     public void retrieveHostsSources() throws HostErrorException {
-        retrieveHostsSources((completed, total, label) -> {
-        });
+        retrieveHostsSources((completed, total, label, retrieving) -> {
+        }, new UpdateBudget());
     }
 
     /**
-     * Retrieve all hosts sources files to copy into a private local file.
+     * Check the hosts sources and retrieve the outdated ones.
      *
-     * @param listener The listener notified of the retrieval progress.
-     * @throws HostErrorException If the hosts sources could not be downloaded.
-     */
-    public void retrieveHostsSources(SourceUpdateListener listener) throws HostErrorException {
-        retrieveHostsSources(listener, new UpdateBudget());
-    }
-
-    /**
-     * Retrieve all hosts sources files to copy into a private local file.
-     *
-     * @param listener The listener notified of the retrieval progress.
+     * @param listener The listener notified as each source is checked, then retrieved.
      * @param budget   What the run is allowed to spend before giving up.
-     * @throws HostErrorException If the hosts sources could not be downloaded.
+     * @throws HostErrorException If the device has no connection.
      */
     public void retrieveHostsSources(SourceUpdateListener listener, UpdateBudget budget)
             throws HostErrorException {
+        SourceUpdatePlan plan = checkForUpdate(listener, budget);
+        retrieveHostsSources(plan, listener, budget);
+    }
+
+    /**
+     * Retrieve the sources a check found outdated.
+     *
+     * @param plan     What the check of this run found.
+     * @param listener The listener notified as each source is retrieved.
+     * @param budget   What the run is allowed to spend before giving up.
+     * @throws HostErrorException If the hosts sources could not be downloaded.
+     */
+    public void retrieveHostsSources(
+            SourceUpdatePlan plan,
+            SourceUpdateListener listener,
+            UpdateBudget budget
+    ) throws HostErrorException {
         // Check connection status
         if (isDeviceOffline()) {
             throw new HostErrorException(NO_CONNECTION);
         }
         // Update state to downloading
         setState(R.string.status_retrieve);
-        // Initialize copy counters
-        int numberOfCopies = 0;
-        int numberOfFailedCopies = 0;
+        // Clear the disabled sources
+        for (HostsSource source : this.hostsSourceDao.getAll()) {
+            if (!source.isEnabled()) {
+                this.hostListItemDao.clearSourceHosts(source.getId());
+                this.hostsSourceDao.clearProperties(source.getId());
+            }
+        }
         // Compute current date in UTC timezone
         ZonedDateTime now = ZonedDateTime.now();
-        List<HostsSource> allSources = this.hostsSourceDao.getAll();
-        // First pass: clear the disabled sources and work out which of the remaining ones are
-        // outdated. Their online date is fetched once here and reused below, so the progress
-        // reported afterwards counts only the sources that are actually going to be retrieved.
-        List<HostsSource> outdatedSources = new ArrayList<>();
-        Map<Integer, ZonedDateTime> onlineModificationDates = new HashMap<>();
-        for (HostsSource source : allSources) {
-            int sourceId = source.getId();
-            if (!source.isEnabled()) {
-                this.hostListItemDao.clearSourceHosts(sourceId);
-                this.hostsSourceDao.clearProperties(sourceId);
-                continue;
-            }
-            if (budget.exhausted()) {
-                Timber.w("Giving up checking the sources: the run has spent its budget.");
-                break;
-            }
-            setState(R.string.status_check_source, source.getLabel());
-            ZonedDateTime onlineModificationDate = getHostsSourceLastUpdate(source);
-            if (onlineModificationDate == null) {
-                // Unknown, either because the source reports no date or because it could not be
-                // reached. Standing in the current time here would mark every source outdated
-                // whenever the connection fails, and download the lot. The two cannot be told
-                // apart, so this does not count as a failure either: only a download that throws
-                // says for certain that the connection is unusable.
-                onlineModificationDate = source.getOnlineModificationDate();
-            }
-            if (onlineModificationDate != null) {
-                onlineModificationDates.put(sourceId, onlineModificationDate);
-            }
-            ZonedDateTime localModificationDate = source.getLocalModificationDate();
-            if (!SourceUpdateStatus.needsRetrieval(localModificationDate, onlineModificationDate, now)) {
-                Timber.i("Skip source %s: no update.", source.getLabel());
-                continue;
-            }
-            outdatedSources.add(source);
-        }
-        int outdatedSourceCount = outdatedSources.size();
-        int completedSourceCount = 0;
-        // Second pass: retrieve the outdated sources
-        for (HostsSource source : outdatedSources) {
+        List<HostsSource> outdatedSources = plan.getOutdatedSources();
+        int numberOfFailedCopies = 0;
+        int numberOfCopies = 0;
+        for (int index = 0; index < outdatedSources.size(); index++) {
+            HostsSource source = outdatedSources.get(index);
             if (budget.exhausted()) {
                 Timber.w("Giving up retrieving the sources: the run has spent its budget.");
                 break;
             }
             int sourceId = source.getId();
-            // Unknown for a source that could not be checked, which is retrieved anyway once it
-            // goes stale; its local date then stands in as the date of the copy on the device.
-            ZonedDateTime onlineModificationDate = onlineModificationDates.get(sourceId);
-            listener.onSourceUpdateStarted(completedSourceCount, outdatedSourceCount, source.getLabel());
-            completedSourceCount++;
-            // Increment number of copy
+            listener.onSourceUpdateStarted(index, outdatedSources.size(), source.getLabel(), true);
             numberOfCopies++;
             try {
-                // Check hosts source type
-                switch (source.getType()) {
-                    case URL:
-                        downloadHostSource(source);
-                        break;
-                    case FILE:
-                        readSourceFile(source);
-                        break;
-                    default:
-                        Timber.w("Hosts source type  is not supported.");
-                }
+                retrieveSource(source);
+                // Unknown for a source that could not be checked, which is retrieved anyway once
+                // it goes stale; its local date then stands in as the date of the copy.
+                ZonedDateTime onlineModificationDate = plan.getOnlineModificationDates().get(sourceId);
                 // Update local and online modification dates to now
                 ZonedDateTime localModificationDate =
                         onlineModificationDate != null && onlineModificationDate.isAfter(now)
@@ -497,7 +448,6 @@ public class SourceModel {
                 budget.recordSuccess();
             } catch (IOException e) {
                 Timber.w(e, "Failed to retrieve host source %s.", source.getUrl());
-                // Increment number of failed copy
                 numberOfFailedCopies++;
                 budget.recordFailure();
             }
@@ -510,6 +460,25 @@ public class SourceModel {
         syncHostEntries();
         // Mark no update available
         this.updateAvailable.postValue(false);
+    }
+
+    /**
+     * Retrieve a source once, from the network or from a file.
+     *
+     * @param source The source to retrieve.
+     * @throws IOException If the source could not be retrieved.
+     */
+    private void retrieveSource(HostsSource source) throws IOException {
+        switch (source.getType()) {
+            case URL:
+                downloadHostSource(source);
+                break;
+            case FILE:
+                readSourceFile(source);
+                break;
+            default:
+                Timber.w("Hosts source type  is not supported.");
+        }
     }
 
     /**
