@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -55,8 +56,15 @@ class SourceLoader {
      */
     static final int BATCH_SIZE = 1_000;
     /**
-     * The number of batches parsed ahead of the ones being stored. It bounds the memory held by a
-     * source being loaded to a few thousand hosts, however large the source is.
+     * The number of hosts sorted together before they are handed over. Stored in index order, the
+     * hosts are looked up and inserted walking the indexes forward rather than jumping around
+     * them; sorting a whole source gains nothing more, and a hundred thousand hosts take about
+     * 12 MB.
+     */
+    static final int SORT_CHUNK_SIZE = 100_000;
+    /**
+     * The number of batches parsed ahead of the ones being stored. Together with the hosts being
+     * sorted, it bounds the memory held by a source being loaded, however large the source is.
      */
     private static final int QUEUE_CAPACITY = 16;
     /**
@@ -64,6 +72,15 @@ class SourceLoader {
      * running, so a parser that died without a word can never leave it waiting forever.
      */
     private static final long POLL_TIMEOUT_SECONDS = 1;
+
+    /**
+     * The order of the indexes of the lists: by type, then host. Strings compare as SQLite
+     * compares them for host names, which are ASCII; any other name only lands a little out of
+     * place, which costs nothing but a less orderly walk.
+     */
+    private static final Comparator<HostListItem> INDEX_ORDER = Comparator
+            .comparingInt((HostListItem item) -> item.getType().getValue())
+            .thenComparing(HostListItem::getHost);
 
     private final HostsSource source;
 
@@ -199,26 +216,24 @@ class SourceLoader {
     }
 
     /**
-     * Read and parse the whole source, handing the hosts over in batches, then the end of the
-     * source or the failure that stopped the reading.
+     * Read and parse the whole source, handing the hosts over sorted in batches, then the end of
+     * the source or the failure that stopped the reading.
      */
     private void parseAll(BufferedReader reader, BlockingQueue<Batch> queue) {
         try {
-            List<HostListItem> items = new ArrayList<>(BATCH_SIZE);
+            List<HostListItem> chunk = new ArrayList<>();
             String line;
             while ((line = reader.readLine()) != null) {
                 HostListItem item = parseLine(line);
                 if (item != null) {
-                    items.add(item);
-                    if (items.size() == BATCH_SIZE) {
-                        queue.put(new Batch(items, null));
-                        items = new ArrayList<>(BATCH_SIZE);
+                    chunk.add(item);
+                    if (chunk.size() == SORT_CHUNK_SIZE) {
+                        handOver(chunk, queue);
+                        chunk = new ArrayList<>();
                     }
                 }
             }
-            if (!items.isEmpty()) {
-                queue.put(new Batch(items, null));
-            }
+            handOver(chunk, queue);
             queue.put(Batch.END);
         } catch (InterruptedException e) {
             // The storing thread gave up and stopped this one: nothing waits for what follows.
@@ -233,6 +248,19 @@ class SourceLoader {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    /**
+     * Sort hosts in the order of the indexes of the lists, by type then host, and hand them over
+     * in batches. Sorting runs here, on the parsing thread, while the previous hosts are stored.
+     */
+    private static void handOver(List<HostListItem> chunk, BlockingQueue<Batch> queue)
+            throws InterruptedException {
+        chunk.sort(INDEX_ORDER);
+        for (int start = 0; start < chunk.size(); start += BATCH_SIZE) {
+            int end = Math.min(start + BATCH_SIZE, chunk.size());
+            queue.put(new Batch(new ArrayList<>(chunk.subList(start, end)), null));
         }
     }
 

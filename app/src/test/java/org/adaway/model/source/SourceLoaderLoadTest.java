@@ -37,7 +37,7 @@ public class SourceLoaderLoadTest {
     private static final String PREVIOUS_HOST = "previous.example.com";
 
     @Test(timeout = 10_000)
-    public void storesEveryHostInOrder() throws IOException {
+    public void storesEveryHost() throws IOException {
         StringBuilder content = new StringBuilder("# A comment\n\n127.0.0.1 localhost\n");
         List<String> expected = new ArrayList<>();
         // Several batches, and a last one that is not full.
@@ -59,6 +59,8 @@ public class SourceLoaderLoadTest {
         assertEquals(0, changes.kept);
         assertEquals(expected.size(), changes.added);
         assertEquals(1, changes.removed);
+        // Fewer hosts than a sorting chunk: all of them are stored sorted.
+        Collections.sort(expected);
         assertEquals(expected, store.committedHosts(SOURCE_ID));
         for (FakeStore.Row row : store.committed) {
             assertEquals(ListType.BLOCKED, row.type);
@@ -66,6 +68,39 @@ public class SourceLoaderLoadTest {
             assertNull(row.redirection);
         }
         assertNoLoaderThreadLeft();
+    }
+
+    @Test(timeout = 20_000)
+    public void sortsTheHostsChunkByChunk() throws IOException {
+        // Listed backwards, a chunk and a half of them.
+        int count = SourceLoader.SORT_CHUNK_SIZE + SourceLoader.SORT_CHUNK_SIZE / 2;
+        List<String> listed = new ArrayList<>();
+        StringBuilder content = new StringBuilder();
+        for (int i = count; i > 0; i--) {
+            String host = String.format("host%07d.example.com", i);
+            listed.add(host);
+            content.append("0.0.0.0 ").append(host).append('\n');
+        }
+        FakeStore store = new FakeStore();
+
+        loader(false).load(reader(content.toString()), store);
+
+        List<String> firstChunk = new ArrayList<>(listed.subList(0, SourceLoader.SORT_CHUNK_SIZE));
+        List<String> secondChunk = new ArrayList<>(listed.subList(SourceLoader.SORT_CHUNK_SIZE, count));
+        Collections.sort(firstChunk);
+        Collections.sort(secondChunk);
+        List<String> expected = new ArrayList<>(firstChunk);
+        expected.addAll(secondChunk);
+        assertEquals(expected, store.committedHosts(SOURCE_ID));
+    }
+
+    @Test(timeout = 10_000)
+    public void sortsBlockedBeforeRedirectedHosts() throws IOException {
+        FakeStore store = new FakeStore();
+        loader(true).load(reader("1.2.3.4 a.example.com\n0.0.0.0 c.example.com\n0.0.0.0 b.example.com\n"), store);
+        List<FakeStore.Row> rows = store.rowsOf(SOURCE_ID);
+        assertEquals(Arrays.asList("b.example.com", "c.example.com", "a.example.com"), store.committedHosts(SOURCE_ID));
+        assertEquals(ListType.REDIRECTED, rows.get(2).type);
     }
 
     @Test(timeout = 10_000)
