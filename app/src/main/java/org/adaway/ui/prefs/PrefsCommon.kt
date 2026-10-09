@@ -2,6 +2,7 @@ package org.adaway.ui.prefs
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -21,7 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
 import org.adaway.ui.compose.ExpressiveIconBadge
@@ -90,7 +91,7 @@ internal fun PreferenceRow(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (enabled) 1f else 0.5f)
-            .safeClickable(enabled = enabled, onClick = onClick)
+            .safeClickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -105,13 +106,13 @@ internal fun PreferenceRow(
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
+            // Titles wrap rather than end in an ellipsis: translated ones, Russian among them,
+            // are often longer than the row.
             Text(
                 text = stringResource(titleRes),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
-                color = titleColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                color = titleColor
             )
             if (!summary.isNullOrEmpty()) {
                 Text(
@@ -139,11 +140,18 @@ internal fun PreferenceToggleRow(
     iconTint: Color = MaterialTheme.colorScheme.primary,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    // The row is the switch: one control a screen reader announces with its state, rather than a
+    // clickable row with a second switch inside it.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (enabled) 1f else 0.5f)
-            .safeClickable(enabled = enabled) { onCheckedChange(!checked) }
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -161,9 +169,7 @@ internal fun PreferenceToggleRow(
             Text(
                 text = stringResource(titleRes),
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontWeight = FontWeight.Bold
             )
             if (!summary.isNullOrEmpty()) {
                 Text(
@@ -174,10 +180,11 @@ internal fun PreferenceToggleRow(
                 )
             }
         }
+        Spacer(modifier = Modifier.width(12.dp))
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null
         )
     }
 }
