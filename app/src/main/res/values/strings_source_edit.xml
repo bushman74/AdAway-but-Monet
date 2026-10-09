@@ -11,7 +11,7 @@
     <string name="source_edit_url_location">Location</string>
     <string name="source_edit_url_location_default">https://</string>
     <string name="source_edit_url_location_required">Location required</string>
-    <string name="source_edit_file_hint">Press File to select source file</string>
+    <string name="source_edit_file_hint">Tap to choose a file</string>
     <string name="source_edit_location_invalid">Invalid location</string>
     <string name="source_edit_location_duplicate">This source is already in the list</string>
     <string name="source_edit_delete_title">Delete source?</string>

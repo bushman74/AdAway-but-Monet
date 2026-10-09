@@ -3,22 +3,22 @@
     <string name="source_edit_title">Редактировать источник</string>
     <string name="source_edit_add_title">Добавить источник</string>
     <!-- Hosts source edition -->
-    <string name="source_edit_label">Метка</string>
-    <string name="source_edit_label_required">Требуется метка</string>
+    <string name="source_edit_label">Название</string>
+    <string name="source_edit_label_required">Укажите название</string>
     <string name="source_edit_type">Тип</string>
     <string name="source_edit_url">URL</string>
     <string name="source_edit_file">Файл</string>
-    <string name="source_edit_url_location">Местоположение</string>
+    <string name="source_edit_url_location">Адрес</string>
     <string name="source_edit_url_location_default">https://</string>
-    <string name="source_edit_url_location_required">Требуется доступ к Местоположению</string>
-    <string name="source_edit_file_hint">Нажмите Файл, чтобы выбрать исходный файл</string>
-    <string name="source_edit_location_invalid">Неверное местоположение</string>
+    <string name="source_edit_url_location_required">Укажите адрес</string>
+    <string name="source_edit_file_hint">Нажмите, чтобы выбрать файл</string>
+    <string name="source_edit_location_invalid">Неверный адрес</string>
     <string name="source_edit_location_duplicate">Этот источник уже есть в списке</string>
     <string name="source_edit_delete_title">Удалить источник?</string>
     <string name="source_edit_delete_message">Источник «%1$s» и его хосты будут удалены.</string>
     <string name="source_edit_format">Формат списка</string>
     <string name="source_edit_format_block_list">Блокировать</string>
     <string name="source_edit_format_allow_list">Разрешить</string>
-    <string name="source_edit_redirected_hosts">Применить перенаправленные хосты</string>
-    <string name="source_edit_redirected_hosts_warning">Разрешение перенаправления хостов может вызвать проблемы с безопасностью. Используйте эти настройки только для надежного источника, поскольку он может перенаправить некоторый конфиденциальный трафик на любой сервер, который ему нужен.</string>
+    <string name="source_edit_redirected_hosts">Применять перенаправления хостов</string>
+    <string name="source_edit_redirected_hosts_warning">Перенаправления хостов небезопасны: источник может направить важный трафик на любой сервер. Включайте их только для источника, которому доверяете.</string>
 </resources>
