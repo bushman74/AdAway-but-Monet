@@ -383,8 +383,7 @@ tcp-urg			{ yylval.i = 0x20; return NUM; }
 .			{ bpf_error("illegal char '%c'", *yytext); }
 %%
 void
-lex_init(buf)
-	const char *buf;
+lex_init(const char *buf)
 {
 #ifdef FLEX_SCANNER
 	in_buffer = yy_scan_string(buf);
@@ -418,8 +417,7 @@ yywrap()
 
 /* Hex digit to integer. */
 static inline int
-xdtoi(c)
-	register int c;
+xdtoi(register int c)
 {
 	if (isdigit(c))
 		return c - '0';
@@ -434,8 +432,7 @@ xdtoi(c)
  * preceding 0x or 0 and uses hex or octal instead of decimal.
  */
 static int
-stoi(s)
-	char *s;
+stoi(char *s)
 {
 	int base = 10;
 	int n = 0;

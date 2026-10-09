@@ -321,8 +321,7 @@ static struct block *gen_ppi_dlt_check(void);
 static struct block *gen_msg_abbrev(int type);
 
 static void *
-newchunk(n)
-	u_int n;
+newchunk(u_int n)
 {
 	struct chunk *cp;
 	int k;
@@ -371,8 +370,7 @@ freechunks()
  * A strdup whose allocations are freed after code generation is over.
  */
 char *
-sdup(s)
-	register const char *s;
+sdup(register const char *s)
 {
 	int n = strlen(s) + 1;
 	char *cp = newchunk(n);
@@ -382,8 +380,7 @@ sdup(s)
 }
 
 static inline struct block *
-new_block(code)
-	int code;
+new_block(int code)
 {
 	struct block *p;
 
@@ -395,8 +392,7 @@ new_block(code)
 }
 
 static inline struct slist *
-new_stmt(code)
-	int code;
+new_stmt(int code)
 {
 	struct slist *p;
 
@@ -407,8 +403,7 @@ new_stmt(code)
 }
 
 static struct block *
-gen_retblk(v)
-	int v;
+gen_retblk(int v)
 {
 	struct block *b = new_block(BPF_RET|BPF_K);
 
@@ -563,8 +558,7 @@ pcap_freecode(struct bpf_program *program)
  * in each block is already resolved.
  */
 static void
-backpatch(list, target)
-	struct block *list, *target;
+backpatch(struct block *list, struct block *target)
 {
 	struct block *next;
 
@@ -585,8 +579,7 @@ backpatch(list, target)
  * which of jt and jf is the link.
  */
 static void
-merge(b0, b1)
-	struct block *b0, *b1;
+merge(struct block *b0, struct block *b1)
 {
 	register struct block **p = &b0;
 
@@ -599,8 +592,7 @@ merge(b0, b1)
 }
 
 void
-finish_parse(p)
-	struct block *p;
+finish_parse(struct block *p)
 {
 	struct block *ppi_dlt_check;
 
@@ -640,8 +632,7 @@ finish_parse(p)
 }
 
 void
-gen_and(b0, b1)
-	struct block *b0, *b1;
+gen_and(struct block *b0, struct block *b1)
 {
 	backpatch(b0, b1->head);
 	b0->sense = !b0->sense;
@@ -652,8 +643,7 @@ gen_and(b0, b1)
 }
 
 void
-gen_or(b0, b1)
-	struct block *b0, *b1;
+gen_or(struct block *b0, struct block *b1)
 {
 	b0->sense = !b0->sense;
 	backpatch(b0, b1->head);
@@ -663,72 +653,49 @@ gen_or(b0, b1)
 }
 
 void
-gen_not(b)
-	struct block *b;
+gen_not(struct block *b)
 {
 	b->sense = !b->sense;
 }
 
 static struct block *
-gen_cmp(offrel, offset, size, v)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
+gen_cmp(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v)
 {
 	return gen_ncmp(offrel, offset, size, 0xffffffff, BPF_JEQ, 0, v);
 }
 
 static struct block *
-gen_cmp_gt(offrel, offset, size, v)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
+gen_cmp_gt(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v)
 {
 	return gen_ncmp(offrel, offset, size, 0xffffffff, BPF_JGT, 0, v);
 }
 
 static struct block *
-gen_cmp_ge(offrel, offset, size, v)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
+gen_cmp_ge(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v)
 {
 	return gen_ncmp(offrel, offset, size, 0xffffffff, BPF_JGE, 0, v);
 }
 
 static struct block *
-gen_cmp_lt(offrel, offset, size, v)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
+gen_cmp_lt(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v)
 {
 	return gen_ncmp(offrel, offset, size, 0xffffffff, BPF_JGE, 1, v);
 }
 
 static struct block *
-gen_cmp_le(offrel, offset, size, v)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
+gen_cmp_le(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v)
 {
 	return gen_ncmp(offrel, offset, size, 0xffffffff, BPF_JGT, 1, v);
 }
 
 static struct block *
-gen_mcmp(offrel, offset, size, v, mask)
-	enum e_offrel offrel;
-	u_int offset, size;
-	bpf_int32 v;
-	bpf_u_int32 mask;
+gen_mcmp(enum e_offrel offrel, u_int offset, u_int size, bpf_int32 v, bpf_u_int32 mask)
 {
 	return gen_ncmp(offrel, offset, size, mask, BPF_JEQ, 0, v);
 }
 
 static struct block *
-gen_bcmp(offrel, offset, size, v)
-	enum e_offrel offrel;
-	register u_int offset, size;
-	register const u_char *v;
+gen_bcmp(enum e_offrel offrel, register u_int offset, register u_int size, register const u_char *v)
 {
 	register struct block *b, *tmp;
 
@@ -770,11 +737,7 @@ gen_bcmp(offrel, offset, size, v)
  * should test the opposite of "jtype".
  */
 static struct block *
-gen_ncmp(offrel, offset, size, mask, jtype, reverse, v)
-	enum e_offrel offrel;
-	bpf_int32 v;
-	bpf_u_int32 offset, size, mask, jtype;
-	int reverse;
+gen_ncmp(enum e_offrel offrel, bpf_u_int32 offset, bpf_u_int32 size, bpf_u_int32 mask, bpf_u_int32 jtype, int reverse, bpf_int32 v)
 {
 	struct slist *s, *s2;
 	struct block *b;
@@ -937,8 +900,7 @@ static int prevlinktype;
 static int outermostlinktype;
 
 static void
-init_linktype(p)
-	pcap_t *p;
+init_linktype(pcap_t *p)
 {
 	pcap_fddipad = p->fddipad;
 
@@ -1559,9 +1521,7 @@ gen_load_absoffsetrel(bpf_abs_offset *abs_offset, u_int offset, u_int size)
  * Load a value relative to the beginning of the specified header.
  */
 static struct slist *
-gen_load_a(offrel, offset, size)
-	enum e_offrel offrel;
-	u_int offset, size;
+gen_load_a(enum e_offrel offrel, u_int offset, u_int size)
 {
 	struct slist *s, *s2;
 
@@ -1696,8 +1656,7 @@ gen_loadx_iphdrlen()
 }
 
 static struct block *
-gen_uncond(rsense)
-	int rsense;
+gen_uncond(int rsense)
 {
 	struct block *b;
 	struct slist *s;
@@ -1740,8 +1699,7 @@ gen_false()
  * the appropriate test.
  */
 static struct block *
-gen_ether_linktype(proto)
-	register int proto;
+gen_ether_linktype(register int proto)
 {
 	struct block *b0, *b1;
 
@@ -1915,8 +1873,7 @@ gen_ether_linktype(proto)
  * or IPv6 then we have an error.
  */
 static struct block *
-gen_ipnet_linktype(proto)
-	register int proto;
+gen_ipnet_linktype(register int proto)
 {
 	switch (proto) {
 
@@ -1945,8 +1902,7 @@ gen_ipnet_linktype(proto)
  * LINUX_SLL_P_802_2 value and then do the appropriate test.
  */
 static struct block *
-gen_linux_sll_linktype(proto)
-	register int proto;
+gen_linux_sll_linktype(register int proto)
 {
 	struct block *b0, *b1;
 
@@ -2592,8 +2548,7 @@ gen_load_802_11_header_len(struct slist *s, struct slist *snext)
 }
 
 static void
-insert_compute_vloffsets(b)
-	struct block *b;
+insert_compute_vloffsets(struct block *b)
 {
 	struct slist *s;
 
@@ -2742,8 +2697,7 @@ gen_abs_offset_varpart(bpf_abs_offset *off)
  * Map an Ethernet type to the equivalent PPP type.
  */
 static int
-ethertype_to_ppptype(proto)
-	int proto;
+ethertype_to_ppptype(int proto)
 {
 	switch (proto) {
 
@@ -2832,8 +2786,7 @@ gen_prevlinkhdr_check(void)
  * value, if <= ETHERMTU.
  */
 static struct block *
-gen_linktype(proto)
-	register int proto;
+gen_linktype(register int proto)
 {
 	struct block *b0, *b1, *b2;
 	const char *description;
@@ -3361,9 +3314,7 @@ gen_linktype(proto)
  * code and protocol type in the SNAP header.
  */
 static struct block *
-gen_snap(orgcode, ptype)
-	bpf_u_int32 orgcode;
-	bpf_u_int32 ptype;
+gen_snap(bpf_u_int32 orgcode, bpf_u_int32 ptype)
 {
 	u_char snapblock[8];
 
@@ -3563,8 +3514,7 @@ gen_llc_u_subtype(bpf_u_int32 subtype)
  * protocol ID in a SNAP header.
  */
 static struct block *
-gen_llc_linktype(proto)
-	int proto;
+gen_llc_linktype(int proto)
 {
 	/*
 	 * XXX - handle token-ring variable-length header.
@@ -3639,11 +3589,7 @@ gen_llc_linktype(proto)
 }
 
 static struct block *
-gen_hostop(addr, mask, dir, proto, src_off, dst_off)
-	bpf_u_int32 addr;
-	bpf_u_int32 mask;
-	int dir, proto;
-	u_int src_off, dst_off;
+gen_hostop(bpf_u_int32 addr, bpf_u_int32 mask, int dir, int proto, u_int src_off, u_int dst_off)
 {
 	struct block *b0, *b1;
 	u_int offset;
@@ -3682,11 +3628,7 @@ gen_hostop(addr, mask, dir, proto, src_off, dst_off)
 
 #ifdef INET6
 static struct block *
-gen_hostop6(addr, mask, dir, proto, src_off, dst_off)
-	struct in6_addr *addr;
-	struct in6_addr *mask;
-	int dir, proto;
-	u_int src_off, dst_off;
+gen_hostop6(struct in6_addr *addr, struct in6_addr *mask, int dir, int proto, u_int src_off, u_int dst_off)
 {
 	struct block *b0, *b1;
 	u_int offset;
@@ -3735,9 +3677,7 @@ gen_hostop6(addr, mask, dir, proto, src_off, dst_off)
 #endif
 
 static struct block *
-gen_ehostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_ehostop(register const u_char *eaddr, register int dir)
 {
 	register struct block *b0, *b1;
 
@@ -3793,9 +3733,7 @@ gen_ehostop(eaddr, dir)
  * Like gen_ehostop, but for DLT_FDDI
  */
 static struct block *
-gen_fhostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_fhostop(register const u_char *eaddr, register int dir)
 {
 	struct block *b0, *b1;
 
@@ -3851,9 +3789,7 @@ gen_fhostop(eaddr, dir)
  * Like gen_ehostop, but for DLT_IEEE802 (Token Ring)
  */
 static struct block *
-gen_thostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_thostop(register const u_char *eaddr, register int dir)
 {
 	register struct block *b0, *b1;
 
@@ -3910,9 +3846,7 @@ gen_thostop(eaddr, dir)
  * various 802.11 + radio headers.
  */
 static struct block *
-gen_wlanhostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_wlanhostop(register const u_char *eaddr, register int dir)
 {
 	register struct block *b0, *b1, *b2;
 	register struct slist *s;
@@ -4336,9 +4270,7 @@ gen_wlanhostop(eaddr, dir)
  * as the RFC states.)
  */
 static struct block *
-gen_ipfchostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_ipfchostop(register const u_char *eaddr, register int dir)
 {
 	register struct block *b0, *b1;
 
@@ -4409,9 +4341,7 @@ gen_ipfchostop(eaddr, dir)
  * and not generate masking instructions if the mask is 0xFFFF.
  */
 static struct block *
-gen_dnhostop(addr, dir)
-	bpf_u_int32 addr;
-	int dir;
+gen_dnhostop(bpf_u_int32 addr, int dir)
 {
 	struct block *b0, *b1, *b2, *tmp;
 	u_int offset_lh;	/* offset if long header is received */
@@ -4485,8 +4415,7 @@ gen_dnhostop(addr, dir)
  * field in the IP header.
  */
 static struct block *
-gen_mpls_linktype(proto)
-	int proto;
+gen_mpls_linktype(int proto)
 {
 	struct block *b0, *b1;
 
@@ -4514,12 +4443,7 @@ gen_mpls_linktype(proto)
 }
 
 static struct block *
-gen_host(addr, mask, proto, dir, type)
-	bpf_u_int32 addr;
-	bpf_u_int32 mask;
-	int proto;
-	int dir;
-	int type;
+gen_host(bpf_u_int32 addr, bpf_u_int32 mask, int proto, int dir, int type)
 {
 	struct block *b0, *b1;
 	const char *typestr;
@@ -4646,12 +4570,7 @@ gen_host(addr, mask, proto, dir, type)
 
 #ifdef INET6
 static struct block *
-gen_host6(addr, mask, proto, dir, type)
-	struct in6_addr *addr;
-	struct in6_addr *mask;
-	int proto;
-	int dir;
-	int type;
+gen_host6(struct in6_addr *addr, struct in6_addr *mask, int proto, int dir, int type)
 {
 	const char *typestr;
 
@@ -4770,11 +4689,7 @@ gen_host6(addr, mask, proto, dir, type)
 
 #ifndef INET6
 static struct block *
-gen_gateway(eaddr, alist, proto, dir)
-	const u_char *eaddr;
-	bpf_u_int32 **alist;
-	int proto;
-	int dir;
+gen_gateway(const u_char *eaddr, bpf_u_int32 **alist, int proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -4841,8 +4756,7 @@ gen_gateway(eaddr, alist, proto, dir)
 #endif
 
 struct block *
-gen_proto_abbrev(proto)
-	int proto;
+gen_proto_abbrev(int proto)
 {
 	struct block *b0;
 	struct block *b1;
@@ -5107,24 +5021,19 @@ gen_ipfrag()
  * headers).
  */
 static struct block *
-gen_portatom(off, v)
-	int off;
-	bpf_int32 v;
+gen_portatom(int off, bpf_int32 v)
 {
 	return gen_cmp(OR_TRAN_IPV4, off, BPF_H, v);
 }
 
 static struct block *
-gen_portatom6(off, v)
-	int off;
-	bpf_int32 v;
+gen_portatom6(int off, bpf_int32 v)
 {
 	return gen_cmp(OR_TRAN_IPV6, off, BPF_H, v);
 }
 
 struct block *
-gen_portop(port, proto, dir)
-	int port, proto, dir;
+gen_portop(int port, int proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5164,10 +5073,7 @@ gen_portop(port, proto, dir)
 }
 
 static struct block *
-gen_port(port, ip_proto, dir)
-	int port;
-	int ip_proto;
-	int dir;
+gen_port(int port, int ip_proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5213,8 +5119,7 @@ gen_port(port, ip_proto, dir)
 }
 
 struct block *
-gen_portop6(port, proto, dir)
-	int port, proto, dir;
+gen_portop6(int port, int proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5253,10 +5158,7 @@ gen_portop6(port, proto, dir)
 }
 
 static struct block *
-gen_port6(port, ip_proto, dir)
-	int port;
-	int ip_proto;
-	int dir;
+gen_port6(int port, int ip_proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5287,9 +5189,7 @@ gen_port6(port, ip_proto, dir)
 
 /* gen_portrange code */
 static struct block *
-gen_portrangeatom(off, v1, v2)
-	int off;
-	bpf_int32 v1, v2;
+gen_portrangeatom(int off, bpf_int32 v1, bpf_int32 v2)
 {
 	struct block *b1, *b2;
 
@@ -5313,10 +5213,7 @@ gen_portrangeatom(off, v1, v2)
 }
 
 struct block *
-gen_portrangeop(port1, port2, proto, dir)
-	int port1, port2;
-	int proto;
-	int dir;
+gen_portrangeop(int port1, int port2, int proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5356,10 +5253,7 @@ gen_portrangeop(port1, port2, proto, dir)
 }
 
 static struct block *
-gen_portrange(port1, port2, ip_proto, dir)
-	int port1, port2;
-	int ip_proto;
-	int dir;
+gen_portrange(int port1, int port2, int ip_proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5389,9 +5283,7 @@ gen_portrange(port1, port2, ip_proto, dir)
 }
 
 static struct block *
-gen_portrangeatom6(off, v1, v2)
-	int off;
-	bpf_int32 v1, v2;
+gen_portrangeatom6(int off, bpf_int32 v1, bpf_int32 v2)
 {
 	struct block *b1, *b2;
 
@@ -5415,10 +5307,7 @@ gen_portrangeatom6(off, v1, v2)
 }
 
 struct block *
-gen_portrangeop6(port1, port2, proto, dir)
-	int port1, port2;
-	int proto;
-	int dir;
+gen_portrangeop6(int port1, int port2, int proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5457,10 +5346,7 @@ gen_portrangeop6(port1, port2, proto, dir)
 }
 
 static struct block *
-gen_portrange6(port1, port2, ip_proto, dir)
-	int port1, port2;
-	int ip_proto;
-	int dir;
+gen_portrange6(int port1, int port2, int ip_proto, int dir)
 {
 	struct block *b0, *b1, *tmp;
 
@@ -5490,9 +5376,7 @@ gen_portrange6(port1, port2, ip_proto, dir)
 }
 
 static int
-lookup_proto(name, proto)
-	register const char *name;
-	register int proto;
+lookup_proto(register const char *name, register int proto)
 {
 	register int v;
 
@@ -5536,19 +5420,14 @@ lookup_proto(name, proto)
 
 #if 0
 struct stmt *
-gen_joinsp(s, n)
-	struct stmt **s;
-	int n;
+gen_joinsp(struct stmt **s, int n)
 {
 	return NULL;
 }
 #endif
 
 static struct block *
-gen_protochain(v, proto, dir)
-	int v;
-	int proto;
-	int dir;
+gen_protochain(int v, int proto, int dir)
 {
 #ifdef NO_PROTOCHAIN
 	return gen_proto(v, proto, dir);
@@ -5874,10 +5753,7 @@ gen_check_802_11_data_frame()
  * against Q_IP and Q_IPV6.
  */
 static struct block *
-gen_proto(v, proto, dir)
-	int v;
-	int proto;
-	int dir;
+gen_proto(int v, int proto, int dir)
 {
 	struct block *b0, *b1;
 #ifndef CHASE_CHAIN
@@ -6091,9 +5967,7 @@ gen_proto(v, proto, dir)
 }
 
 struct block *
-gen_scode(name, q)
-	register const char *name;
-	struct qual q;
+gen_scode(register const char *name, struct qual q)
 {
 	int proto = q.proto;
 	int dir = q.dir;
@@ -6392,10 +6266,7 @@ gen_scode(name, q)
 }
 
 struct block *
-gen_mcode(s1, s2, masklen, q)
-	register const char *s1, *s2;
-	register unsigned int masklen;
-	struct qual q;
+gen_mcode(register const char *s1, register const char *s2, register unsigned int masklen, struct qual q)
 {
 	register int nlen, mlen;
 	bpf_u_int32 n, m;
@@ -6442,10 +6313,7 @@ gen_mcode(s1, s2, masklen, q)
 }
 
 struct block *
-gen_ncode(s, v, q)
-	register const char *s;
-	bpf_u_int32 v;
-	struct qual q;
+gen_ncode(register const char *s, bpf_u_int32 v, struct qual q)
 {
 	bpf_u_int32 mask;
 	int proto = q.proto;
@@ -6551,10 +6419,7 @@ gen_ncode(s, v, q)
 
 #ifdef INET6
 struct block *
-gen_mcode6(s1, s2, masklen, q)
-	register const char *s1, *s2;
-	register unsigned int masklen;
-	struct qual q;
+gen_mcode6(register const char *s1, register const char *s2, register unsigned int masklen, struct qual q)
 {
 	struct addrinfo *res;
 	struct in6_addr *addr;
@@ -6612,9 +6477,7 @@ gen_mcode6(s1, s2, masklen, q)
 #endif /*INET6*/
 
 struct block *
-gen_ecode(eaddr, q)
-	register const u_char *eaddr;
-	struct qual q;
+gen_ecode(register const u_char *eaddr, struct qual q)
 {
 	struct block *b, *tmp;
 
@@ -6651,8 +6514,7 @@ gen_ecode(eaddr, q)
 }
 
 void
-sappend(s0, s1)
-	struct slist *s0, *s1;
+sappend(struct slist *s0, struct slist *s1)
 {
 	/*
 	 * This is definitely not the best way to do this, but the
@@ -6664,8 +6526,7 @@ sappend(s0, s1)
 }
 
 static struct slist *
-xfer_to_x(a)
-	struct arth *a;
+xfer_to_x(struct arth *a)
 {
 	struct slist *s;
 
@@ -6675,8 +6536,7 @@ xfer_to_x(a)
 }
 
 static struct slist *
-xfer_to_a(a)
-	struct arth *a;
+xfer_to_a(struct arth *a)
 {
 	struct slist *s;
 
@@ -6693,10 +6553,7 @@ xfer_to_a(a)
  * for "index".
  */
 struct arth *
-gen_load(proto, inst, size)
-	int proto;
-	struct arth *inst;
-	int size;
+gen_load(int proto, struct arth *inst, int size)
 {
 	struct slist *s, *tmp;
 	struct block *b;
@@ -6919,10 +6776,7 @@ gen_load(proto, inst, size)
 }
 
 struct block *
-gen_relation(code, a0, a1, reversed)
-	int code;
-	struct arth *a0, *a1;
-	int reversed;
+gen_relation(int code, struct arth *a0, struct arth *a1, int reversed)
 {
 	struct slist *s0, *s1, *s2;
 	struct block *b, *tmp;
@@ -6981,8 +6835,7 @@ gen_loadlen()
 }
 
 struct arth *
-gen_loadi(val)
-	int val;
+gen_loadi(int val)
 {
 	struct arth *a;
 	struct slist *s;
@@ -7003,8 +6856,7 @@ gen_loadi(val)
 }
 
 struct arth *
-gen_neg(a)
-	struct arth *a;
+gen_neg(struct arth *a)
 {
 	struct slist *s;
 
@@ -7021,9 +6873,7 @@ gen_neg(a)
 }
 
 struct arth *
-gen_arth(code, a0, a1)
-	int code;
-	struct arth *a0, *a1;
+gen_arth(int code, struct arth *a0, struct arth *a1)
 {
 	struct slist *s0, *s1, *s2;
 
@@ -7089,15 +6939,13 @@ alloc_reg()
  * be used later.
  */
 static void
-free_reg(n)
-	int n;
+free_reg(int n)
 {
 	regused[n] = 0;
 }
 
 static struct block *
-gen_len(jmp, n)
-	int jmp, n;
+gen_len(int jmp, int n)
 {
 	struct slist *s;
 	struct block *b;
@@ -7111,8 +6959,7 @@ gen_len(jmp, n)
 }
 
 struct block *
-gen_greater(n)
-	int n;
+gen_greater(int n)
 {
 	return gen_len(BPF_JGE, n);
 }
@@ -7121,8 +6968,7 @@ gen_greater(n)
  * Actually, this is less than or equal.
  */
 struct block *
-gen_less(n)
-	int n;
+gen_less(int n)
 {
 	struct block *b;
 
@@ -7143,8 +6989,7 @@ gen_less(n)
  * would generate code appropriate to the radio header in question.
  */
 struct block *
-gen_byteop(op, idx, val)
-	int op, idx, val;
+gen_byteop(int op, int idx, int val)
 {
 	struct block *b;
 	struct slist *s;
@@ -7183,8 +7028,7 @@ gen_byteop(op, idx, val)
 static u_char abroadcast[] = { 0x0 };
 
 struct block *
-gen_broadcast(proto)
-	int proto;
+gen_broadcast(int proto)
 {
 	bpf_u_int32 hostmask;
 	struct block *b0, *b1, *b2;
@@ -7250,8 +7094,7 @@ gen_broadcast(proto)
  * the bottom bit of the *first* byte).
  */
 static struct block *
-gen_mac_multicast(offset)
-	int offset;
+gen_mac_multicast(int offset)
 {
 	register struct block *b0;
 	register struct slist *s;
@@ -7265,8 +7108,7 @@ gen_mac_multicast(offset)
 }
 
 struct block *
-gen_multicast(proto)
-	int proto;
+gen_multicast(int proto)
 {
 	register struct block *b0, *b1, *b2;
 	register struct slist *s;
@@ -7453,8 +7295,7 @@ gen_multicast(proto)
  * better accomplished using a higher-layer filter.
  */
 struct block *
-gen_inbound(dir)
-	int dir;
+gen_inbound(int dir)
 {
 	register struct block *b0;
 
@@ -7783,9 +7624,7 @@ gen_p80211_fcdir(int fcdir)
 }
 
 struct block *
-gen_acode(eaddr, q)
-	register const u_char *eaddr;
-	struct qual q;
+gen_acode(register const u_char *eaddr, struct qual q)
 {
 	switch (linktype) {
 
@@ -7810,9 +7649,7 @@ gen_acode(eaddr, q)
 }
 
 static struct block *
-gen_ahostop(eaddr, dir)
-	register const u_char *eaddr;
-	register int dir;
+gen_ahostop(register const u_char *eaddr, register int dir)
 {
 	register struct block *b0, *b1;
 
@@ -7935,8 +7772,7 @@ gen_vlan_no_bpf_extensions(int vlan_num)
  * support IEEE 802.1Q VLAN trunk over ethernet
  */
 struct block *
-gen_vlan(vlan_num)
-	int vlan_num;
+gen_vlan(int vlan_num)
 {
 	struct	block	*b0;
 
@@ -8020,8 +7856,7 @@ gen_vlan(vlan_num)
  * support for MPLS
  */
 struct block *
-gen_mpls(label_num)
-	int label_num;
+gen_mpls(int label_num)
 {
 	struct	block	*b0, *b1;
 
@@ -8099,8 +7934,7 @@ gen_pppoed()
 }
 
 struct block *
-gen_pppoes(sess_num)
-	int sess_num;
+gen_pppoes(int sess_num)
 {
 	struct block *b0, *b1;
 
@@ -8464,11 +8298,7 @@ gen_geneve_ll_check()
 }
 
 struct block *
-gen_atmfield_code(atmfield, jvalue, jtype, reverse)
-	int atmfield;
-	bpf_int32 jvalue;
-	bpf_u_int32 jtype;
-	int reverse;
+gen_atmfield_code(int atmfield, bpf_int32 jvalue, bpf_u_int32 jtype, int reverse)
 {
 	struct block *b0;
 
@@ -8522,8 +8352,7 @@ gen_atmfield_code(atmfield, jvalue, jtype, reverse)
 }
 
 struct block *
-gen_atmtype_abbrev(type)
-	int type;
+gen_atmtype_abbrev(int type)
 {
 	struct block *b0, *b1;
 
@@ -8628,8 +8457,7 @@ gen_atmtype_abbrev(type)
  * For MTP2_HSL, sequences are on 2 bytes, and length on 9 bits
  */
 struct block *
-gen_mtp2type_abbrev(type)
-	int type;
+gen_mtp2type_abbrev(int type)
 {
 	struct block *b0, *b1;
 
@@ -8696,11 +8524,7 @@ gen_mtp2type_abbrev(type)
 }
 
 struct block *
-gen_mtp3field_code(mtp3field, jvalue, jtype, reverse)
-	int mtp3field;
-	bpf_u_int32 jvalue;
-	bpf_u_int32 jtype;
-	int reverse;
+gen_mtp3field_code(int mtp3field, bpf_u_int32 jvalue, bpf_u_int32 jtype, int reverse)
 {
 	struct block *b0;
 	bpf_u_int32 val1 , val2 , val3;
@@ -8793,8 +8617,7 @@ gen_mtp3field_code(mtp3field, jvalue, jtype, reverse)
 }
 
 static struct block *
-gen_msg_abbrev(type)
-	int type;
+gen_msg_abbrev(int type)
 {
 	struct block *b1;
 
@@ -8835,8 +8658,7 @@ gen_msg_abbrev(type)
 }
 
 struct block *
-gen_atmmulti_abbrev(type)
-	int type;
+gen_atmmulti_abbrev(int type)
 {
 	struct block *b0, *b1;
 

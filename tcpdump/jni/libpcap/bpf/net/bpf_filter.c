@@ -134,9 +134,7 @@
 }
 
 static int
-m_xword(m, k, err)
-	register struct mbuf *m;
-	register int k, *err;
+m_xword(register struct mbuf *m, register int k, register int *err)
 {
 	register int len;
 	register u_char *cp, *np;
@@ -170,9 +168,7 @@ m_xword(m, k, err)
 }
 
 static int
-m_xhalf(m, k, err)
-	register struct mbuf *m;
-	register int k, *err;
+m_xhalf(register struct mbuf *m, register int k, register int *err)
 {
 	register int len;
 	register u_char *cp;
@@ -218,12 +214,7 @@ enum {
  * in all other cases, p is a pointer to a buffer and buflen is its size.
  */
 u_int
-bpf_filter_with_aux_data(pc, p, wirelen, buflen, aux_data)
-	register const struct bpf_insn *pc;
-	register const u_char *p;
-	u_int wirelen;
-	register u_int buflen;
-	register const struct bpf_aux_data *aux_data;
+bpf_filter_with_aux_data(register const struct bpf_insn *pc, register const u_char *p, u_int wirelen, register u_int buflen, register const struct bpf_aux_data *aux_data)
 {
 	register u_int32 A, X;
 	register bpf_u_int32 k;
@@ -592,11 +583,7 @@ bpf_filter_with_aux_data(pc, p, wirelen, buflen, aux_data)
 }
 
 u_int
-bpf_filter(pc, p, wirelen, buflen)
-	register const struct bpf_insn *pc;
-	register const u_char *p;
-	u_int wirelen;
-	register u_int buflen;
+bpf_filter(register const struct bpf_insn *pc, register const u_char *p, u_int wirelen, register u_int buflen)
 {
 	return bpf_filter_with_aux_data(pc, p, wirelen, buflen, NULL);
 }
@@ -614,9 +601,7 @@ bpf_filter(pc, p, wirelen, buflen)
  * Otherwise, a bogus program could easily crash the system.
  */
 int
-bpf_validate(f, len)
-	const struct bpf_insn *f;
-	int len;
+bpf_validate(const struct bpf_insn *f, int len)
 {
 	u_int i, from;
 	const struct bpf_insn *p;

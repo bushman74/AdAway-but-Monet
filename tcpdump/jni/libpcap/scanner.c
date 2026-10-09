@@ -4744,8 +4744,7 @@ void pcap_free (void * ptr )
 
 
 void
-lex_init(buf)
-	const char *buf;
+lex_init(const char *buf)
 {
 #ifdef FLEX_SCANNER
 	in_buffer = pcap__scan_string(buf);
@@ -4779,8 +4778,7 @@ pcap_wrap()
 
 /* Hex digit to integer. */
 static inline int
-xdtoi(c)
-	register int c;
+xdtoi(register int c)
 {
 	if (isdigit(c))
 		return c - '0';
@@ -4795,8 +4793,7 @@ xdtoi(c)
  * preceding 0x or 0 and uses hex or octal instead of decimal.
  */
 static int
-stoi(s)
-	char *s;
+stoi(char *s)
 {
 	int base = 10;
 	int n = 0;

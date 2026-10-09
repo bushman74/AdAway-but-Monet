@@ -836,8 +836,7 @@ pcap_freealldevs(pcap_if_t *alldevs)
  * lowest unit number is preferred; loopback is ignored.
  */
 char *
-pcap_lookupdev(errbuf)
-	register char *errbuf;
+pcap_lookupdev(register char *errbuf)
 {
 	pcap_if_t *alldevs;
 /* for old BSD systems, including bsdi3 */
@@ -878,10 +877,7 @@ pcap_lookupdev(errbuf)
 }
 
 int
-pcap_lookupnet(device, netp, maskp, errbuf)
-	register const char *device;
-	register bpf_u_int32 *netp, *maskp;
-	register char *errbuf;
+pcap_lookupnet(register const char *device, register bpf_u_int32 *netp, register bpf_u_int32 *maskp, register char *errbuf)
 {
 	register int fd;
 	register struct sockaddr_in *sin4;
@@ -978,8 +974,7 @@ pcap_lookupnet(device, netp, maskp, errbuf)
  * lowest unit number is preferred; loopback is ignored.
  */
 char *
-pcap_lookupdev(errbuf)
-	register char *errbuf;
+pcap_lookupdev(register char *errbuf)
 {
 	DWORD dwVersion;
 	DWORD dwWindowsMajorVersion;
@@ -1060,10 +1055,7 @@ pcap_lookupdev(errbuf)
 
 
 int
-pcap_lookupnet(device, netp, maskp, errbuf)
-	register const char *device;
-	register bpf_u_int32 *netp, *maskp;
-	register char *errbuf;
+pcap_lookupnet(register const char *device, register bpf_u_int32 *netp, register bpf_u_int32 *maskp, register char *errbuf)
 {
 	/*
 	 * We need only the first IPv4 address, so we must scan the array returned by PacketGetNetInfo()
