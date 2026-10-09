@@ -6,7 +6,11 @@ import org.adaway.db.entity.ListType;
 import org.adaway.util.RegexUtils;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.adaway.model.source.SourceLoader.splitHostsLine;
@@ -124,6 +128,14 @@ public class SourceLoaderTest {
                 new String[]{"::1", "ipv6.example.com"},
                 splitHostsLine("::1 ipv6.example.com#comment")
         );
+        assertArrayEquals(
+                new String[]{"0.0.0.0", "a.example.com", "b.example.com", "c.example.com"},
+                splitHostsLine("0.0.0.0 a.example.com\tb.example.com  c.example.com # d.example.com")
+        );
+        assertArrayEquals(
+                new String[]{"0.0.0.0", "a.example.com", "b.example.com"},
+                splitHostsLine("0.0.0.0 a.example.com b.example.com#c.example.com")
+        );
         assertNull(splitHostsLine("0.0.0.0"));
         assertNull(splitHostsLine("0.0.0.0 "));
         assertNull(splitHostsLine("0.0.0.0 # no host"));
@@ -134,38 +146,88 @@ public class SourceLoaderTest {
     @Test
     public void readsCommentsInBlockedLists() {
         SourceLoader loader = loader(false, false);
-        assertHost(loader.parseLine("0.0.0.0 example.com"), ListType.BLOCKED, "example.com", null);
-        assertHost(loader.parseLine("0.0.0.0 example.com # note"), ListType.BLOCKED, "example.com", null);
-        assertHost(loader.parseLine("0.0.0.0 example.com#note"), ListType.BLOCKED, "example.com", null);
-        assertHost(loader.parseLine("127.0.0.1\texample.com\t# note # more"), ListType.BLOCKED, "example.com", null);
-        assertNull(loader.parseLine("# 0.0.0.0 example.com"));
-        assertNull(loader.parseLine("  # 0.0.0.0 example.com"));
-        assertNull(loader.parseLine("0.0.0.0 # example.com"));
-        assertNull(loader.parseLine("0.0.0.0#example.com"));
+        assertHost(parseOne(loader, "0.0.0.0 example.com"), ListType.BLOCKED, "example.com", null);
+        assertHost(parseOne(loader, "0.0.0.0 example.com # note"), ListType.BLOCKED, "example.com", null);
+        assertHost(parseOne(loader, "0.0.0.0 example.com#note"), ListType.BLOCKED, "example.com", null);
+        assertHost(parseOne(loader, "127.0.0.1\texample.com\t# note # more"), ListType.BLOCKED, "example.com", null);
+        assertNothing(loader, "# 0.0.0.0 example.com");
+        assertNothing(loader, "  # 0.0.0.0 example.com");
+        assertNothing(loader, "0.0.0.0 # example.com");
+        assertNothing(loader, "0.0.0.0#example.com");
     }
 
     @Test
     public void readsCommentsInRedirectedLists() {
         SourceLoader loader = loader(false, true);
-        assertHost(loader.parseLine("10.0.0.1 example.com # note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
-        assertHost(loader.parseLine("10.0.0.1 example.com#note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
-        assertNull(loader.parseLine("# 10.0.0.1 example.com"));
-        assertNull(loader.parseLine("10.0.0.1 # example.com"));
+        assertHost(parseOne(loader, "10.0.0.1 example.com # note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
+        assertHost(parseOne(loader, "10.0.0.1 example.com#note"), ListType.REDIRECTED, "example.com", "10.0.0.1");
+        assertNothing(loader, "# 10.0.0.1 example.com");
+        assertNothing(loader, "10.0.0.1 # example.com");
     }
 
     @Test
     public void readsCommentsInAllowLists() {
         SourceLoader loader = loader(true, false);
-        assertHost(loader.parseLine("example.com"), ListType.ALLOWED, "example.com", null);
+        assertHost(parseOne(loader, "example.com"), ListType.ALLOWED, "example.com", null);
         // A comment ending the line is dropped, so the host before it is kept.
-        assertHost(loader.parseLine("example.com # note"), ListType.ALLOWED, "example.com", null);
-        assertHost(loader.parseLine("example.com#note"), ListType.ALLOWED, "example.com", null);
-        assertHost(loader.parseLine("\t*.example.com\t# wildcard # note"), ListType.ALLOWED, "*.example.com", null);
+        assertHost(parseOne(loader, "example.com # note"), ListType.ALLOWED, "example.com", null);
+        assertHost(parseOne(loader, "example.com#note"), ListType.ALLOWED, "example.com", null);
+        assertHost(parseOne(loader, "\t*.example.com\t# wildcard # note"), ListType.ALLOWED, "*.example.com", null);
         // A line starting with one is a comment.
-        assertNull(loader.parseLine("# example.com"));
-        assertNull(loader.parseLine("   # example.com"));
-        assertNull(loader.parseLine("#"));
-        assertNull(loader.parseLine(""));
+        assertNothing(loader, "# example.com");
+        assertNothing(loader, "   # example.com");
+        assertNothing(loader, "#");
+        assertNothing(loader, "");
+    }
+
+    @Test
+    public void readsEveryHostOfALine() {
+        SourceLoader loader = loader(false, true);
+        assertHosts(loader, "0.0.0.0 a.example.com b.example.com c.example.com",
+                "a.example.com", "b.example.com", "c.example.com");
+        assertHosts(loader, "0.0.0.0\ta.example.com \t b.example.com\t", "a.example.com", "b.example.com");
+        // Up to a comment, wherever it starts.
+        assertHosts(loader, "0.0.0.0 a.example.com b.example.com # c.example.com", "a.example.com", "b.example.com");
+        assertHosts(loader, "0.0.0.0 a.example.com b.example.com#c.example.com", "a.example.com", "b.example.com");
+        // Each name is checked on its own: the invalid ones and localhost are skipped.
+        assertHosts(loader, "127.0.0.1 localhost a.example.com bad..name b.example.com",
+                "a.example.com", "b.example.com");
+        assertNothing(loader, "0.0.0.0 localhost bad..name");
+        // Every name of a redirected line is redirected to its address.
+        List<HostListItem> redirected = parse(loader, "10.0.0.1 a.example.com b.example.com");
+        assertEquals(2, redirected.size());
+        for (HostListItem item : redirected) {
+            assertEquals(ListType.REDIRECTED, item.getType());
+            assertEquals("10.0.0.1", item.getRedirection());
+        }
+        // An address that is not one lists nothing.
+        assertNothing(loader, "10.0.0 a.example.com b.example.com");
+        // Without redirection, another address lists nothing.
+        assertNothing(loader(false, false), "10.0.0.1 a.example.com b.example.com");
+    }
+
+    private static List<HostListItem> parse(SourceLoader loader, String line) {
+        List<HostListItem> items = new ArrayList<>();
+        loader.parseLine(line, items);
+        return items;
+    }
+
+    private static HostListItem parseOne(SourceLoader loader, String line) {
+        List<HostListItem> items = parse(loader, line);
+        assertEquals("Hosts listed by " + line, 1, items.size());
+        return items.get(0);
+    }
+
+    private static void assertNothing(SourceLoader loader, String line) {
+        assertEquals("Hosts listed by " + line, Collections.emptyList(), parse(loader, line));
+    }
+
+    private static void assertHosts(SourceLoader loader, String line, String... hosts) {
+        List<String> parsed = new ArrayList<>();
+        for (HostListItem item : parse(loader, line)) {
+            parsed.add(item.getHost());
+        }
+        assertEquals("Hosts listed by " + line, Arrays.asList(hosts), parsed);
     }
 
     private static SourceLoader loader(boolean allowEnabled, boolean redirectEnabled) {

@@ -224,13 +224,10 @@ class SourceLoader {
             List<HostListItem> chunk = new ArrayList<>();
             String line;
             while ((line = reader.readLine()) != null) {
-                HostListItem item = parseLine(line);
-                if (item != null) {
-                    chunk.add(item);
-                    if (chunk.size() == SORT_CHUNK_SIZE) {
-                        handOver(chunk, queue);
-                        chunk = new ArrayList<>();
-                    }
+                parseLine(line, chunk);
+                if (chunk.size() >= SORT_CHUNK_SIZE) {
+                    handOver(chunk, queue);
+                    chunk = new ArrayList<>();
                 }
             }
             handOver(chunk, queue);
@@ -265,70 +262,81 @@ class SourceLoader {
     }
 
     /**
-     * Parse a line of the source.
+     * Parse a line of the source, adding the hosts it lists. A comment, a blank or an invalid line
+     * lists none; a hosts line can list several, each checked on its own.
      *
-     * @return The host it lists, or {@code null} for a comment, a blank or an invalid line.
+     * @param line  The line to parse.
+     * @param items Where to add the hosts listed.
      */
-    @Nullable
-    HostListItem parseLine(String line) {
+    void parseLine(String line, List<HostListItem> items) {
         // Skip comments. Not logged: this runs once per source line.
         if (line.isEmpty() || line.charAt(0) == '#') {
-            return null;
+            return;
         }
-        HostListItem item = this.source.isAllowEnabled()
-                ? parseAllowListItem(line)
-                : parseHostListItem(line);
-        if (item == null || !isRedirectionValid(item) || !isHostValid(item)) {
-            return null;
+        if (this.source.isAllowEnabled()) {
+            HostListItem item = parseAllowListItem(line);
+            if (isHostValid(item)) {
+                items.add(item);
+            }
+        } else {
+            parseHostsLine(line, items);
         }
-        return item;
     }
 
-    private HostListItem parseHostListItem(String line) {
+    private void parseHostsLine(String line, List<HostListItem> items) {
         String[] fields = splitHostsLine(line);
         if (fields == null) {
             // Not logged: this runs once per source line.
-            return null;
-        }
-        // Check IP address validity or while list entry (if allowed)
-        String ip = fields[0];
-        String hostname = fields[1];
-        // Skip localhost name
-        if (LOCALHOST_HOSTNAME.equals(hostname)) {
-            return null;
+            return;
         }
         // check if ip is 127.0.0.1 or 0.0.0.0
+        String ip = fields[0];
         ListType type;
         if (LOCALHOST_IPV4.equals(ip)
                 || BOGUS_IPV4.equals(ip)
                 || LOCALHOST_IPV6.equals(ip)) {
             type = BLOCKED;
-        } else if (this.source.isRedirectEnabled()) {
+        } else if (this.source.isRedirectEnabled() && RegexUtils.isValidIP(ip)) {
             type = REDIRECTED;
         } else {
-            return null;
+            return;
         }
-        HostListItem item = new HostListItem();
-        item.setType(type);
-        item.setHost(hostname);
-        item.setEnabled(true);
-        if (type == REDIRECTED) {
-            item.setRedirection(ip);
+        // Every host name the line lists, as a hosts file allows several per address.
+        for (int index = 1; index < fields.length; index++) {
+            String hostname = fields[index];
+            // Skip localhost name
+            if (LOCALHOST_HOSTNAME.equals(hostname)) {
+                continue;
+            }
+            HostListItem item = new HostListItem();
+            item.setType(type);
+            item.setHost(hostname);
+            item.setEnabled(true);
+            if (type == REDIRECTED) {
+                item.setRedirection(ip);
+            }
+            item.setSourceId(this.source.getId());
+            if (isHostValid(item)) {
+                items.add(item);
+            }
         }
-        item.setSourceId(this.source.getId());
-        return item;
     }
 
     /**
-     * Split a hosts line into its address and its host name.
+     * Split a hosts line into its address and the host names that follow it.
      * <p>
-     * It reads lines exactly as the regular expression {@code ^\s*([^#\s]+)\s+([^#\s]+).*$}
-     * used to, at a fraction of the cost: leading blanks, an address, blanks, a host name, then
-     * anything. A field ends at a blank or at a {@code #}, and the line is rejected when the
-     * address is not followed by a blank or when no host name follows it.
+     * Leading blanks, an address, blanks, then host names separated by blanks, up to a {@code #}
+     * starting a comment or the end of the line. A field ends at a blank or at a {@code #}, and
+     * the line is rejected when the address is not followed by a blank or when no host name
+     * follows it.
+     * <p>
+     * The address and the first host name are read exactly as the regular expression
+     * {@code ^\s*([^#\s]+)\s+([^#\s]+).*$} used to read them, which ignored the other names. A
+     * line that expression rejected, for holding a line terminator after the first name, is
+     * still rejected.
      *
      * @param line The line to split.
-     * @return The address then the host name, or {@code null} when the line has no host name.
+     * @return The address then the host names, or {@code null} when the line has no host name.
      */
     @Nullable
     static String[] splitHostsLine(String line) {
@@ -356,14 +364,31 @@ class SourceLoader {
         if (index == hostStart) {
             return null;
         }
-        // What follows the host name is ignored, unless it spans lines: the expression matched
-        // a single line.
+        // Nothing that spans lines follows the first host name: the expression matched a single
+        // line.
         for (int rest = index; rest < length; rest++) {
             if (isLineTerminator(line.charAt(rest))) {
                 return null;
             }
         }
-        return new String[]{line.substring(addressStart, addressEnd), line.substring(hostStart, index)};
+        List<String> fields = new ArrayList<>(2);
+        fields.add(line.substring(addressStart, addressEnd));
+        fields.add(line.substring(hostStart, index));
+        // The other host names, up to a comment.
+        while (true) {
+            while (index < length && isBlank(line.charAt(index))) {
+                index++;
+            }
+            if (index == length || line.charAt(index) == '#') {
+                break;
+            }
+            int nameStart = index;
+            while (index < length && !endsField(line.charAt(index))) {
+                index++;
+            }
+            fields.add(line.substring(nameStart, index));
+        }
+        return fields.toArray(new String[0]);
     }
 
     /**
@@ -399,10 +424,6 @@ class SourceLoader {
         item.setEnabled(true);
         item.setSourceId(this.source.getId());
         return item;
-    }
-
-    private static boolean isRedirectionValid(HostListItem item) {
-        return item.getType() != REDIRECTED || RegexUtils.isValidIP(item.getRedirection());
     }
 
     private static boolean isHostValid(HostListItem item) {

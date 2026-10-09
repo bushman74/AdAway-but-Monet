@@ -16,7 +16,8 @@ import java.util.regex.Pattern;
 
 /**
  * Checks the hand written parsing gives exactly the results of what it replaced: the regular
- * expression that split hosts lines, and Guava's host name validation.
+ * expression that split hosts lines, extended to the other host names of a line, and Guava's host
+ * name validation.
  * <p>
  * Besides the edge cases listed, it compares both on hundreds of thousands of generated inputs.
  * The generator is seeded, so a failure always reproduces.
@@ -27,6 +28,7 @@ public class HostsParsingEquivalenceTest {
      */
     private static final Pattern HOSTS_PARSER = Pattern.compile("^\\s*([^#\\s]+)\\s+([^#\\s]+).*$");
     private static final Pattern WILDCARD = Pattern.compile("[*?]");
+    private static final Pattern BLANKS = Pattern.compile("\\s+");
     /**
      * The characters lines are generated from: every blank of the expression, the comment sign,
      * line terminators the expression treats specially, and blanks it does not know.
@@ -62,11 +64,7 @@ public class HostsParsingEquivalenceTest {
             lines.add(randomString(random, LINE_CHARACTERS, random.nextInt(14)));
         }
         for (String line : lines) {
-            Matcher matcher = HOSTS_PARSER.matcher(line);
-            String[] expected = matcher.matches()
-                    ? new String[]{matcher.group(1), matcher.group(2)}
-                    : null;
-            assertArrayEquals("Line " + escape(line), expected, SourceLoader.splitHostsLine(line));
+            assertArrayEquals("Line " + escape(line), splitAsTheExpression(line), SourceLoader.splitHostsLine(line));
         }
     }
 
@@ -120,6 +118,31 @@ public class HostsParsingEquivalenceTest {
                     RegexUtils.isValidWildcardHostname(name)
             );
         }
+    }
+
+    /**
+     * Split a line as the expression did, then add the other host names it ignored: those
+     * separated by blanks after the first, up to a comment.
+     */
+    private static String[] splitAsTheExpression(String line) {
+        Matcher matcher = HOSTS_PARSER.matcher(line);
+        if (!matcher.matches()) {
+            return null;
+        }
+        List<String> fields = new ArrayList<>();
+        fields.add(matcher.group(1));
+        fields.add(matcher.group(2));
+        String rest = line.substring(matcher.end(2));
+        int comment = rest.indexOf('#');
+        if (comment != -1) {
+            rest = rest.substring(0, comment);
+        }
+        for (String name : BLANKS.split(rest)) {
+            if (!name.isEmpty()) {
+                fields.add(name);
+            }
+        }
+        return fields.toArray(new String[0]);
     }
 
     /**
