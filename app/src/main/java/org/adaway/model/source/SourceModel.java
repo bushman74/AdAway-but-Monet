@@ -678,7 +678,7 @@ public class SourceModel {
             throws IOException {
         setState(R.string.status_parse_source, hostsSource.getLabel());
         long startTime = System.currentTimeMillis();
-        new SourceLoader(hostsSource).parse(reader, this.database, this.hostListItemDao);
+        new SourceLoader(hostsSource).parse(reader, this.database);
         long endTime = System.currentTimeMillis();
         Timber.i("Parsed " + hostsSource.getUrl() + " in " + (endTime - startTime) / 1000 + "s");
     }

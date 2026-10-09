@@ -10,6 +10,7 @@ import androidx.room.Query
 import androidx.room.Update
 import org.adaway.db.entity.HostListItem
 import org.adaway.db.entity.ListedHost
+import org.adaway.db.entity.SourceRow
 import java.util.Optional
 
 @Dao
@@ -72,4 +73,25 @@ interface HostListItemDao {
 
     @Query("DELETE FROM hosts_lists WHERE source_id = :sourceId")
     fun clearSourceHosts(sourceId: Int)
+
+    /**
+     * Get the highest id in use. The ids are never reused, so every row added afterwards has a
+     * higher one.
+     */
+    @Query("SELECT IFNULL(MAX(id), 0) FROM hosts_lists")
+    fun getMaxId(): Long
+
+    @Query("SELECT EXISTS (SELECT 1 FROM hosts_lists WHERE source_id = :sourceId)")
+    fun hasSourceHosts(sourceId: Int): Boolean
+
+    /**
+     * Read a page of the rows a source lists with a type, in host then id order, starting
+     * strictly after the given host and id.
+     *
+     * The order is the one of the source, type and host index, which ends with the id, so the
+     * page is read straight from the index. Paging on the id as well as the host never skips a
+     * host the source lists twice.
+     */
+    @Query("SELECT id, host FROM hosts_lists WHERE source_id = :sourceId AND type = :type AND host >= :afterHost AND (host > :afterHost OR id > :afterId) ORDER BY host, id LIMIT :limit")
+    fun getSourceRowsAfter(sourceId: Int, type: Int, afterHost: String, afterId: Long, limit: Int): List<SourceRow>
 }

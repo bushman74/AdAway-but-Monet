@@ -11,7 +11,6 @@ import static org.adaway.util.Constants.LOCALHOST_IPV6;
 import androidx.annotation.Nullable;
 
 import org.adaway.db.AppDatabase;
-import org.adaway.db.dao.HostListItemDao;
 import org.adaway.db.entity.HostListItem;
 import org.adaway.db.entity.HostsSource;
 import org.adaway.db.entity.ListType;
@@ -21,6 +20,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongConsumer;
 
 import timber.log.Timber;
 
@@ -39,6 +40,11 @@ import timber.log.Timber;
  * the download and the database writes overlap. The hosts are handed over in batches rather than
  * one by one: a hand-over costs about as much as parsing a line, so doing it per line used to take
  * longer than the parsing itself.
+ * <p>
+ * Only what changed is written. A source usually changes by a few hosts between two updates, yet
+ * every host used to be deleted and inserted again, rewriting its rows and both indexes of the
+ * lists each time. Each host read is now looked up first: the ones already listed are kept as they
+ * are, only the new ones are inserted, and only the ones the source no longer lists are deleted.
  *
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
@@ -74,26 +80,10 @@ class SourceLoader {
      *
      * @throws IOException If the source could not be read to its end.
      */
-    void parse(BufferedReader reader, AppDatabase database, HostListItemDao hostListItemDao)
-            throws IOException {
-        int sourceId = this.source.getId();
-        int inserted = load(reader, new Store() {
-            @Override
-            public void runInTransaction(Runnable body) {
-                database.runInTransaction(body);
-            }
-
-            @Override
-            public void clear() {
-                hostListItemDao.clearSourceHosts(sourceId);
-            }
-
-            @Override
-            public void insert(List<HostListItem> items) {
-                hostListItemDao.insert(items);
-            }
-        });
-        Timber.i("%s host list items inserted.", inserted);
+    void parse(BufferedReader reader, AppDatabase database) throws IOException {
+        Changes changes = load(reader, new DatabaseSourceStore(database, this.source.getId()));
+        Timber.i("Source %s: %d hosts kept, %d added, %d removed.", this.source.getUrl(),
+                changes.kept, changes.added, changes.removed);
     }
 
     /**
@@ -101,27 +91,20 @@ class SourceLoader {
      *
      * @param reader The source content.
      * @param store  Where the hosts are stored.
-     * @return The number of hosts stored.
+     * @return What changed.
      * @throws IOException If the source could not be read or stored whole. Nothing is changed then.
      */
-    int load(BufferedReader reader, Store store) throws IOException {
+    Changes load(BufferedReader reader, Store store) throws IOException {
         BlockingQueue<Batch> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
         ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, TAG));
         Future<?> parsing = executor.submit(() -> parseAll(reader, queue));
-        int[] inserted = {0};
+        Changes changes = new Changes();
         try {
-            // Clear the previous hosts and insert the new ones in a single transaction, on this
-            // thread. Readers keep seeing the previous content until it commits, and throwing out
-            // of it rolls it back, so a source is either replaced whole or left as it was.
-            store.runInTransaction(() -> {
-                store.clear();
-                List<HostListItem> items;
-                while ((items = take(queue, parsing)) != null) {
-                    store.insert(items);
-                    inserted[0] += items.size();
-                }
-            });
-            return inserted[0];
+            // Change the hosts of the source in a single transaction, on this thread. Readers keep
+            // seeing the previous content until it commits, and throwing out of it rolls it back,
+            // so a source is either updated whole or left as it was.
+            store.runInTransaction(() -> store(queue, parsing, store, changes));
+            return changes;
         } catch (SourceReadException e) {
             throw e.getCause();
         } catch (RuntimeException e) {
@@ -133,6 +116,52 @@ class SourceLoader {
             // stops at its next hand-over, and closing the reader ends a read in progress.
             parsing.cancel(true);
             executor.shutdown();
+        }
+    }
+
+    /**
+     * Store the hosts read, keeping the ones already listed. Runs in the transaction.
+     */
+    private static void store(BlockingQueue<Batch> queue, Future<?> parsing, Store store, Changes changes) {
+        // A source being turned off while it updates gets its new hosts turned off too. Its rows
+        // all share its state, as only the hosts the user added can be turned off one by one.
+        boolean enabled = store.isSourceEnabled();
+        // Every row added from now on gets a higher id, which tells the previous rows apart.
+        long previousMaxId = store.getMaxId();
+        // A source loaded for the first time has nothing to look up or remove.
+        boolean listed = store.hasHosts();
+        LongList keptIds = new LongList();
+        List<HostListItem> items;
+        while ((items = take(queue, parsing)) != null) {
+            List<HostListItem> added = new ArrayList<>(items.size());
+            for (HostListItem item : items) {
+                long id = listed ? store.findId(item) : Store.NOT_FOUND;
+                if (id == Store.NOT_FOUND) {
+                    item.setEnabled(enabled);
+                    added.add(item);
+                } else {
+                    keptIds.add(id);
+                }
+            }
+            if (!added.isEmpty()) {
+                store.insert(added);
+            }
+            changes.added += added.size();
+            changes.kept += items.size() - added.size();
+        }
+        if (listed) {
+            // Remove the previous rows that no host read matched.
+            keptIds.sort();
+            LongList removedIds = new LongList();
+            store.forEachId(id -> {
+                if (id <= previousMaxId && !keptIds.contains(id)) {
+                    removedIds.add(id);
+                }
+            });
+            for (int index = 0; index < removedIds.size(); index++) {
+                store.delete(removedIds.get(index));
+            }
+            changes.removed = removedIds.size();
         }
     }
 
@@ -363,19 +392,101 @@ class SourceLoader {
      */
     interface Store {
         /**
+         * What {@link #findId(HostListItem)} returns for a host not listed yet.
+         */
+        long NOT_FOUND = -1;
+
+        /**
          * Run the body in a transaction, committed when it returns and rolled back when it throws.
+         * The other methods are called from the body only.
          */
         void runInTransaction(Runnable body);
 
         /**
-         * Remove every host of the source.
+         * Tell whether the source is enabled.
          */
-        void clear();
+        boolean isSourceEnabled();
+
+        /**
+         * Get the highest id in use by any row. Rows added afterwards get higher ones.
+         */
+        long getMaxId();
+
+        /**
+         * Tell whether the source lists any host.
+         */
+        boolean hasHosts();
+
+        /**
+         * Find a row of the source listing a host with the same type and redirection.
+         *
+         * @return The id of the row, or {@link #NOT_FOUND}.
+         */
+        long findId(HostListItem item);
 
         /**
          * Add hosts to the source.
          */
         void insert(List<HostListItem> items);
+
+        /**
+         * Visit the id of every row of the source.
+         */
+        void forEachId(LongConsumer action);
+
+        /**
+         * Remove a row.
+         */
+        void delete(long id);
+    }
+
+    /**
+     * What storing a source changed.
+     */
+    static final class Changes {
+        int kept;
+        int added;
+        int removed;
+    }
+
+    /**
+     * A growable list of ids, without a boxed object per id: a large source has a million.
+     */
+    private static final class LongList {
+        private long[] values = new long[1024];
+        private int size;
+        private boolean sorted = true;
+
+        void add(long value) {
+            if (this.size == this.values.length) {
+                this.values = Arrays.copyOf(this.values, this.size * 2);
+            }
+            this.values[this.size++] = value;
+            this.sorted = false;
+        }
+
+        long get(int index) {
+            return this.values[index];
+        }
+
+        int size() {
+            return this.size;
+        }
+
+        void sort() {
+            Arrays.sort(this.values, 0, this.size);
+            this.sorted = true;
+        }
+
+        /**
+         * Tell whether the list holds a value. Sort it first.
+         */
+        boolean contains(long value) {
+            if (!this.sorted) {
+                throw new IllegalStateException("The list must be sorted first.");
+            }
+            return Arrays.binarySearch(this.values, 0, this.size, value) >= 0;
+        }
     }
 
     /**

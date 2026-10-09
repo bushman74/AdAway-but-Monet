@@ -42,6 +42,14 @@ interface HostsSourceDao {
     @Query("SELECT * FROM hosts_sources WHERE id = :id")
     fun getById(id: Int): Optional<HostsSource>
 
+    /**
+     * Tell whether a source is enabled.
+     *
+     * @return Whether it is, or `null` when there is no such source.
+     */
+    @Query("SELECT enabled FROM hosts_sources WHERE id = :id")
+    fun isSourceEnabled(id: Int): Boolean?
+
     @Query("SELECT * FROM hosts_sources WHERE url = :url")
     fun getByUrl(url: String): Optional<HostsSource>
 
