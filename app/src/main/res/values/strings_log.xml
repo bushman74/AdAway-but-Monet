@@ -22,4 +22,7 @@
     <string name="log_export_failed">Failed to export the recorded requests to \'%s\'.</string>
     <!-- Redirect dialog  -->
     <string name="log_redirect_dialog_title">Redirect domain</string>
+    <string name="log_clear_title">Clear the recorded requests?</string>
+    <string name="log_clear_message">Every DNS request recorded so far will be deleted.</string>
+    <string name="log_clear_confirm">Clear</string>
 </resources>

@@ -1,8 +1,10 @@
 package org.adaway.ui.log
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.text.format.DateFormat
+import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.compose.animation.AnimatedContent
@@ -32,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -77,6 +80,7 @@ import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
 import java.util.Locale
+import timber.log.Timber
 
 private fun onLogEntryAction(
     context: android.content.Context,
@@ -103,7 +107,12 @@ private fun openHostInBrowser(context: android.content.Context, hostName: String
     val intent = Intent(Intent.ACTION_VIEW).apply {
         data = Uri.parse("http://$hostName")
     }
-    context.startActivity(intent)
+    try {
+        context.startActivity(intent)
+    } catch (exception: ActivityNotFoundException) {
+        // Without a browser there is nothing to open it in; that is no reason to close AdAway.
+        Timber.w(exception, "No browser to open %s.", hostName)
+    }
 }
 
 @Composable
@@ -118,6 +127,7 @@ internal fun LogRoute(
         ApplyConfigurationSnackbar(rootView, false, false)
     }
     var redirectHost by remember { mutableStateOf<String?>(null) }
+    var clearRequested by remember { mutableStateOf(false) }
     val recording by viewModel.recording.collectAsStateWithLifecycle()
     val togglingRecording by viewModel.togglingRecording.collectAsStateWithLifecycle()
     val recordingMessage by viewModel.recordingMessage.collectAsStateWithLifecycle()
@@ -159,7 +169,7 @@ internal fun LogRoute(
         blockedRequestsIgnored = blockedRequestsIgnored,
         onNavigateBack = onNavigateBack,
         onSort = viewModel::toggleSort,
-        onClear = viewModel::clearLogs,
+        onClear = { clearRequested = true },
         onRefresh = viewModel::updateLogs,
         onSearch = viewModel::search,
         onToggleRecording = viewModel::toggleRecording,
@@ -186,6 +196,30 @@ internal fun LogRoute(
             confirmButton = {
                 TextButton(onClick = viewModel::dismissRecordingMessage) {
                     Text(text = stringResource(android.R.string.ok))
+                }
+            }
+        )
+    }
+
+    // Clearing throws away everything recorded so far, so it is confirmed first.
+    if (clearRequested) {
+        AlertDialog(
+            onDismissRequest = { clearRequested = false },
+            title = { Text(text = stringResource(R.string.log_clear_title)) },
+            text = { Text(text = stringResource(R.string.log_clear_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        clearRequested = false
+                        viewModel.clearLogs()
+                    }
+                ) {
+                    Text(text = stringResource(R.string.log_clear_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearRequested = false }) {
+                    Text(text = stringResource(R.string.button_cancel))
                 }
             }
         )
@@ -553,18 +587,21 @@ private fun LogEntryRow(
         ) {
             LogActionButton(
                 iconRes = R.drawable.baseline_block_24,
+                labelRes = R.string.lists_tab_blocked,
                 active = entry.type == ListType.BLOCKED,
                 activeColor = MaterialTheme.colorScheme.error,
                 onClick = { onAction(entry, ListType.BLOCKED) }
             )
             LogActionButton(
                 iconRes = R.drawable.baseline_check_24,
+                labelRes = R.string.lists_tab_allowed,
                 active = entry.type == ListType.ALLOWED,
                 activeColor = MaterialTheme.colorScheme.tertiary,
                 onClick = { onAction(entry, ListType.ALLOWED) }
             )
             LogActionButton(
                 iconRes = R.drawable.baseline_compare_arrows_24,
+                labelRes = R.string.lists_tab_redirected,
                 active = entry.type == ListType.REDIRECTED,
                 activeColor = MaterialTheme.colorScheme.secondary,
                 onClick = { onAction(entry, ListType.REDIRECTED) }
@@ -622,9 +659,14 @@ private fun rememberFormattedTime(instant: Instant): String {
     return remember(instant, formatter) { formatter.format(Date.from(instant)) }
 }
 
+/**
+ * Puts the host in a list, or takes it out when it is already there. It is announced as the list
+ * it stands for, checked when the host is in it.
+ */
 @Composable
 private fun LogActionButton(
     iconRes: Int,
+    @StringRes labelRes: Int,
     active: Boolean,
     activeColor: Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
@@ -634,10 +676,14 @@ private fun LogActionButton(
         animationSpec = tween(200),
         label = "logActionTint"
     )
-    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+    IconToggleButton(
+        checked = active,
+        onCheckedChange = { onClick() },
+        modifier = Modifier.size(36.dp)
+    ) {
         Icon(
             painter = painterResource(iconRes),
-            contentDescription = null,
+            contentDescription = stringResource(labelRes),
             tint = tint,
             modifier = Modifier.size(20.dp)
         )
