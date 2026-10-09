@@ -51,6 +51,7 @@ class VpnService : android.net.VpnService(), Handler.Callback {
 
     override fun onCreate() {
         Timber.d("Creating VPN service...")
+        isAlive = true
         registerNetworkCallback()
     }
 
@@ -77,6 +78,7 @@ class VpnService : android.net.VpnService(), Handler.Callback {
     override fun onDestroy() {
         Timber.d("Destroying VPN service...")
         unregisterNetworkCallback()
+        isAlive = false
         Timber.d("Destroyed VPN service.")
     }
 
@@ -281,6 +283,16 @@ class VpnService : android.net.VpnService(), Handler.Callback {
     }
 
     companion object {
+        /**
+         * Whether the service exists in this process, from its creation to its destruction. It is
+         * what asking the system for this app's running services answered, an API deprecated
+         * since Android 8.
+         */
+        @JvmStatic
+        @Volatile
+        var isAlive = false
+            private set
+
         private const val REQUEST_CODE_START = 43
         private const val REQUEST_CODE_PAUSE = 42
         private const val VPN_STATUS_UPDATE_MESSAGE_TYPE = 0
