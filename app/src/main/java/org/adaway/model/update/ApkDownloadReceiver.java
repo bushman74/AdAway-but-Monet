@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 
-import static android.content.Intent.ACTION_INSTALL_PACKAGE;
 
 import timber.log.Timber;
 
@@ -16,6 +15,7 @@ import timber.log.Timber;
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
 public class ApkDownloadReceiver extends BroadcastReceiver {
+    private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private final long downloadId;
 
     public ApkDownloadReceiver(long downloadId) {
@@ -39,10 +39,12 @@ public class ApkDownloadReceiver extends BroadcastReceiver {
     }
 
     private void installApk(Context context, Uri apkUri) {
-        Intent install = new Intent(ACTION_INSTALL_PACKAGE);
+        // Viewing an APK opens the system package installer, as the install action deprecated
+        // since Android 10 did.
+        Intent install = new Intent(Intent.ACTION_VIEW);
         install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        install.setData(apkUri);
+        install.setDataAndType(apkUri, APK_MIME_TYPE);
         context.startActivity(install);
     }
 }
