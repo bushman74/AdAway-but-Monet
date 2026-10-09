@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
 import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.annotation.StringRes
@@ -20,11 +21,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +36,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,10 +48,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,6 +71,7 @@ import org.adaway.ui.compose.ExpressiveAsymmetricShape2
 import org.adaway.ui.compose.ExpressiveScaffold
 import org.adaway.ui.compose.ExpressiveSection
 import org.adaway.ui.compose.ExpressiveTopBar
+import timber.log.Timber
 
 @Composable
 internal fun SourceEditRoute(
@@ -405,17 +416,21 @@ private fun SourceEditScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(
+                            ButtonGroupDefaults.ConnectedSpaceBetween
+                        )
                     ) {
                         SourceToggleButton(
                             text = stringResource(R.string.source_edit_format_block_list),
                             selected = !state.allowFormat,
+                            leading = true,
                             modifier = Modifier.weight(1f),
                             onClick = { onFormatSelected(false) }
                         )
                         SourceToggleButton(
                             text = stringResource(R.string.source_edit_format_allow_list),
                             selected = state.allowFormat,
+                            leading = false,
                             modifier = Modifier.weight(1f),
                             onClick = { onFormatSelected(true) }
                         )
@@ -437,17 +452,21 @@ private fun SourceEditScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(
+                            ButtonGroupDefaults.ConnectedSpaceBetween
+                        )
                     ) {
                         SourceToggleButton(
                             text = stringResource(R.string.source_edit_url),
                             selected = state.type == SourceInputType.URL,
+                            leading = true,
                             modifier = Modifier.weight(1f),
                             onClick = { onTypeSelected(SourceInputType.URL) }
                         )
                         SourceToggleButton(
                             text = stringResource(R.string.source_edit_file),
                             selected = state.type == SourceInputType.FILE,
+                            leading = false,
                             modifier = Modifier.weight(1f),
                             onClick = { onTypeSelected(SourceInputType.FILE) }
                         )
@@ -471,8 +490,11 @@ private fun SourceEditScreen(
                             shape = MaterialTheme.shapes.medium
                         )
                     } else {
-                        val fileLocation = state.fileLocation.ifEmpty {
-                            stringResource(R.string.source_edit_file_hint)
+                        val fileName = rememberDisplayName(state.fileLocation)
+                        val fileLocation = when {
+                            fileName != null -> fileName
+                            state.fileLocation.isNotEmpty() -> state.fileLocation
+                            else -> stringResource(R.string.source_edit_file_hint)
                         }
                         OutlinedButton(
                             onClick = onFileLocationClick,
@@ -503,13 +525,22 @@ private fun SourceEditScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     ExpressiveSection(shape = ExpressiveAsymmetricShape2) {
                         Column(modifier = Modifier.padding(24.dp)) {
+                            // The whole line toggles the option, not only the box beside it.
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .toggleable(
+                                        value = state.redirectedHosts,
+                                        role = Role.Checkbox,
+                                        onValueChange = onRedirectedChanged
+                                    ),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
                                     checked = state.redirectedHosts,
-                                    onCheckedChange = onRedirectedChanged
+                                    onCheckedChange = null,
+                                    modifier = Modifier.minimumInteractiveComponentSize()
                                 )
                                 Text(
                                     text = stringResource(R.string.source_edit_redirected_hosts),
@@ -534,38 +565,74 @@ private fun SourceEditScreen(
     }
 }
 
+/**
+ * One of two connected buttons choosing between two options. Picking the option already chosen
+ * does nothing: a choice changes by picking the other one.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SourceToggleButton(
     text: String,
     selected: Boolean,
+    leading: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    if (selected) {
-        Button(
-            onClick = onClick,
-            modifier = modifier,
-            shape = MaterialTheme.shapes.medium,
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-        ) {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
+    ToggleButton(
+        checked = selected,
+        onCheckedChange = { if (!selected) onClick() },
+        modifier = modifier.semantics { role = Role.RadioButton },
+        shapes = if (leading) {
+            ButtonGroupDefaults.connectedLeadingButtonShapes()
+        } else {
+            ButtonGroupDefaults.connectedTrailingButtonShapes()
         }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = modifier,
-            shape = MaterialTheme.shapes.medium
-        ) {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleSmall
+    ) {
+        if (selected) {
+            Icon(
+                painter = painterResource(R.drawable.baseline_check_24),
+                contentDescription = null,
+                modifier = Modifier.size(ButtonDefaults.IconSize)
             )
+            Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
+        }
+        Text(
+            text = text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * The name of the picked file, rather than the address the document provider gave for it, or
+ * `null` until it is known or when the provider does not say.
+ */
+@Composable
+private fun rememberDisplayName(location: String): String? {
+    val context = LocalContext.current
+    var name by remember(location) { mutableStateOf<String?>(null) }
+    LaunchedEffect(location) {
+        if (location.isEmpty()) {
+            return@LaunchedEffect
+        }
+        name = withContext(Dispatchers.IO) {
+            try {
+                context.contentResolver.query(
+                    Uri.parse(location),
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            } catch (exception: RuntimeException) {
+                // A provider may refuse once its permission is gone; the address is shown then.
+                Timber.d(exception, "Failed to read the name of %s.", location)
+                null
+            }
         }
     }
+    return name
 }
 
 private const val ANY_MIME_TYPE = "*/*"
