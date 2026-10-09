@@ -67,7 +67,10 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
@@ -227,6 +230,7 @@ private val AdAwayExpressiveTypography = Typography(
     )
 )
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AdAwayExpressiveTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -247,8 +251,12 @@ fun AdAwayExpressiveTheme(
         else -> AdAwayExpressiveLightColors
     }
 
-    MaterialTheme(
+    // The expressive theme gives the components their Material 3 Expressive behaviour, such as
+    // buttons that change shape when pressed, and the expressive motion scheme their springier
+    // movement.
+    MaterialExpressiveTheme(
         colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
         typography = AdAwayExpressiveTypography,
         shapes = AdAwayExpressiveShapes
     ) {
