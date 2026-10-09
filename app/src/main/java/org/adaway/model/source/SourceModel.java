@@ -537,15 +537,14 @@ public class SourceModel {
         // Run the whole rebuild as a single transaction, otherwise every statement below pays
         // for its own commit which dominates the cost on large host lists.
         this.database.runInTransaction(() -> {
-            this.hostEntryDao.sync();
+            int blockedCount = this.hostEntryDao.sync();
             // Recorded in the same transaction as the rebuild it describes, so the generated hosts
             // file can never be considered current for entries it was not built from.
             this.metadataDao.markHostEntriesRebuilt();
+            // The counters shown on the home screen, stored with the rebuild they describe. The
+            // rebuild already counted the blocked hosts, the costly ones to count.
+            HostCounts.storeRebuilt(this.database, blockedCount);
         });
-        // Refresh the cached counters here, once, rather than counting distinct hosts across
-        // millions of rows every time the home screen is shown. Done outside the transaction
-        // because it only reads.
-        HostCounts.refresh(this.database);
     }
 
     /**

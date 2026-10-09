@@ -27,6 +27,13 @@ interface MetadataDao {
      */
     fun observeHostCount(type: ListType): LiveData<String?> = observe(hostCountKey(type))
 
+    /**
+     * Get a cached host counter.
+     *
+     * @return The count, or `null` when it was never computed.
+     */
+    fun getHostCount(type: ListType): Int? = get(hostCountKey(type))?.toIntOrNull()
+
     fun setHostCount(type: ListType, count: Int) {
         put(Metadata().apply {
             key = hostCountKey(type)

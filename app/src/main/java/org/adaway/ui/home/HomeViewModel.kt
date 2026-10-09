@@ -125,7 +125,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         hostsSourceDao = database.hostsSourceDao()
         metadataDao = database.metadataDao()
 
-        refreshHostCounts()
+        fillMissingHostCounts()
         observeManualUpdate()
 
         VpnStatusRepository.update(PreferenceHelper.getVpnServiceStatus(application))
@@ -224,10 +224,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 awaitingUpdateOutcome = false
                 when {
                     info.state == WorkInfo.State.SUCCEEDED -> {
+                        // The update stored the new counters as it rebuilt the host entries.
                         if (info.outputData.getBoolean(SourceUpdateService.KEY_UP_TO_DATE, false)) {
                             confirmAllSourcesUpToDate()
                         }
-                        refreshHostCounts()
                     }
 
                     info.state == WorkInfo.State.FAILED -> {
@@ -254,11 +254,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Recompute the cached host counters off the main thread.
+     * Compute the host counters never computed yet, off the main thread. The others are kept up
+     * to date as the host entries are rebuilt, so they are not counted again on every launch.
      */
-    private fun refreshHostCounts() {
+    private fun fillMissingHostCounts() {
         viewModelScope.launch(Dispatchers.IO) {
-            HostCounts.refresh(database)
+            HostCounts.fillMissing(database)
         }
     }
 

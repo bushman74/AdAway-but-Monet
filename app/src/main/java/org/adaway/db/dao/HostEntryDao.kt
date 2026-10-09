@@ -15,7 +15,14 @@ interface HostEntryDao {
     @Query("DELETE FROM `host_entries`")
     fun clear()
 
-    @Query("INSERT INTO `host_entries` SELECT DISTINCT `host`, `type`, `redirection` FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1")
+    /**
+     * Add every enabled blocked host, once each.
+     *
+     * Grouped by host rather than made distinct over every column: the index of the lists then
+     * answers it alone, already in host order, and a host is imported once even if two of its
+     * rows were ever to differ. A blocked entry has no redirection.
+     */
+    @Query("INSERT INTO `host_entries` SELECT `host`, 0, NULL FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1 GROUP BY `host`")
     fun importBlocked()
 
     @get:Query("SELECT host FROM hosts_lists WHERE type = 1 AND enabled = 1")
@@ -36,11 +43,21 @@ interface HostEntryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun redirectHosts(redirections: List<HostEntry>)
 
-    fun sync() {
+    /**
+     * Rebuild the entries from the enabled lists.
+     *
+     * @return The number of distinct hosts the enabled lists block, before the allowed and the
+     * redirected hosts are applied, as the home screen shows it.
+     */
+    fun sync(): Int {
         clear()
         importBlocked()
+        // Each blocked host was imported once, so the entries count them now without reading
+        // the lists again.
+        val blockedCount = count
         applyAllowList()
         applyRedirectList()
+        return blockedCount
     }
 
     /**

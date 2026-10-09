@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.adaway.R
 import org.adaway.db.AppDatabase
+import org.adaway.db.HostCounts
 import org.adaway.db.entity.HostListItem
 import org.adaway.db.entity.ListType
 import org.adaway.db.entity.ListType.ALLOWED
@@ -98,6 +99,9 @@ object BackupImporter {
         importListBackup(hostListItemDao, BLOCKED, backupObject.getJSONArray(BLOCKED_KEY))
         importListBackup(hostListItemDao, ALLOWED, backupObject.getJSONArray(ALLOWED_KEY))
         importListBackup(hostListItemDao, REDIRECTED, backupObject.getJSONArray(REDIRECTED_KEY))
+        // The restored hosts change the lists without a rebuild of the host entries, which is what
+        // otherwise keeps the counters up to date.
+        HostCounts.refresh(database)
     }
 
     @Throws(JSONException::class)
