@@ -55,6 +55,12 @@ public class HostsSource {
      * The number of hosts list items (<code>0</code> until synced).
      */
     private int size;
+    /**
+     * Why the last retrieval of the source failed, as a {@code SourceFailure} code, or
+     * <code>null</code> when it succeeded or was never attempted.
+     */
+    @ColumnInfo(name = "last_update_error")
+    private String lastUpdateError;
 
     /**
      * Check whether an URL is valid for as host source.<br>
@@ -157,6 +163,14 @@ public class HostsSource {
 
     public void setSize(int size) {
         this.size = size;
+    }
+
+    public String getLastUpdateError() {
+        return this.lastUpdateError;
+    }
+
+    public void setLastUpdateError(String lastUpdateError) {
+        this.lastUpdateError = lastUpdateError;
     }
 
     @Override

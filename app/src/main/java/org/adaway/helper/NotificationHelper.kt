@@ -24,6 +24,7 @@ object NotificationHelper {
     private const val DNS_RECORDING_NOTIFICATION_ID = 18
     private const val APPLY_CONFIGURATION_NOTIFICATION_ID = 19
     private const val DNS_RECORDING_FAILURE_NOTIFICATION_ID = 22
+    private const val SOURCE_UPDATE_FAILURE_NOTIFICATION_ID = 23
     
     @JvmField
     val VPN_RUNNING_SERVICE_NOTIFICATION_ID = 20
@@ -171,6 +172,57 @@ object NotificationHelper {
         val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
         notificationManager.cancel(DNS_RECORDING_NOTIFICATION_ID)
         notificationManager.cancel(DNS_RECORDING_FAILURE_NOTIFICATION_ID)
+    }
+
+    /**
+     * Name the sources an update had to skip. It can be swiped away, and opens the source list,
+     * where each of them says why it failed.
+     */
+    @JvmStatic
+    fun showSourceUpdateFailureNotification(context: Context, sourceLabels: List<String>) {
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        if (notificationManager == null || !notificationManager.areNotificationsEnabled()) {
+            return
+        }
+
+        val intent = Intent(context, HomeActivity::class.java).apply {
+            putExtra(NavigationRequest.EXTRA_ROUTE, AdAwayRoute.HOSTS)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            SOURCE_UPDATE_FAILURE_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val title = context.resources.getQuantityString(
+            R.plurals.notification_source_update_failed_title,
+            sourceLabels.size,
+            sourceLabels.size
+        )
+        val text = sourceLabels.joinToString(separator = ", ")
+
+        val builder = NotificationCompat.Builder(context, UPDATE_NOTIFICATION_CHANNEL)
+            .setSmallIcon(R.drawable.logo)
+            .setColor(context.getColor(R.color.notification))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(sourceLabels.joinToString("\n")))
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOngoing(false)
+            .setAutoCancel(true)
+
+        notificationManager.notify(SOURCE_UPDATE_FAILURE_NOTIFICATION_ID, builder.build())
+    }
+
+    /**
+     * Withdraw the list of skipped sources, once an update reaches all of them.
+     */
+    @JvmStatic
+    fun clearSourceUpdateFailureNotification(context: Context) {
+        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
+        notificationManager.cancel(SOURCE_UPDATE_FAILURE_NOTIFICATION_ID)
     }
 
     @JvmStatic

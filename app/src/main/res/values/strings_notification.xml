@@ -25,4 +25,8 @@
     <!-- VPN notification -->
     <string name="notification_vpn_channel_name">VPN</string>
     <string name="notification_vpn_channel_description">VPN running notifications</string>
+    <plurals name="notification_source_update_failed_title">
+        <item quantity="one">%d source could not be updated</item>
+        <item quantity="other">%d sources could not be updated</item>
+    </plurals>
 </resources>

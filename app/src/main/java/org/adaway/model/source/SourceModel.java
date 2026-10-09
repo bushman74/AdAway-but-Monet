@@ -3,12 +3,12 @@ package org.adaway.model.source;
 import static android.content.Context.CONNECTIVITY_SERVICE;
 import static android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET;
 import static android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED;
-import static org.adaway.model.error.HostError.DOWNLOAD_FAILED;
 import static org.adaway.model.error.HostError.NO_CONNECTION;
 import static java.net.HttpURLConnection.HTTP_NOT_MODIFIED;
 import static java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME;
 import static java.time.format.FormatStyle.MEDIUM;
 import static java.util.Objects.requireNonNull;
+import static org.adaway.db.entity.SourceType.FILE;
 
 import android.content.ContentResolver;
 import android.content.Context;
@@ -17,6 +17,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -35,6 +36,7 @@ import org.adaway.db.dao.MetadataDao;
 import org.adaway.db.entity.HostEntry;
 import org.adaway.db.entity.HostListItem;
 import org.adaway.db.entity.HostsSource;
+import org.adaway.helper.NotificationHelper;
 import org.adaway.model.error.HostErrorException;
 import org.adaway.model.git.GitHostsSource;
 
@@ -83,6 +85,14 @@ public class SourceModel {
      * Only applied to the header requests, as downloading a large source legitimately takes longer.
      */
     private static final Duration CHECK_CALL_TIMEOUT = Duration.ofMinutes(2);
+    /**
+     * How many times a source is tried before it is skipped for this run.
+     */
+    private static final int RETRIEVAL_ATTEMPTS = 2;
+    /**
+     * The pause before trying a failed source again, long enough for a brief network hiccup.
+     */
+    private static final Duration RETRY_DELAY = Duration.ofSeconds(2);
     private static final String LAST_MODIFIED_HEADER = "Last-Modified";
     private static final String IF_NONE_MATCH_HEADER = "If-None-Match";
     private static final String IF_MODIFIED_SINCE_HEADER = "If-Modified-Since";
@@ -395,10 +405,14 @@ public class SourceModel {
     /**
      * Retrieve the sources a check found outdated.
      *
+     * A source that fails is tried once more, then skipped, and the reason is recorded with it.
+     * One source being unreachable no longer stops the update of the others: the sources that
+     * could not be updated are listed in a notification instead.
+     *
      * @param plan     What the check of this run found.
      * @param listener The listener notified as each source is retrieved.
      * @param budget   What the run is allowed to spend before giving up.
-     * @throws HostErrorException If the hosts sources could not be downloaded.
+     * @throws HostErrorException If the device has no connection.
      */
     public void retrieveHostsSources(
             SourceUpdatePlan plan,
@@ -421,45 +435,79 @@ public class SourceModel {
         // Compute current date in UTC timezone
         ZonedDateTime now = ZonedDateTime.now();
         List<HostsSource> outdatedSources = plan.getOutdatedSources();
-        int numberOfFailedCopies = 0;
-        int numberOfCopies = 0;
+        List<String> failedSources = new ArrayList<>();
         for (int index = 0; index < outdatedSources.size(); index++) {
             HostsSource source = outdatedSources.get(index);
+            int sourceId = source.getId();
             if (budget.exhausted()) {
+                // The run stops here, having spent its time or failed too often in a row. The
+                // sources it did not reach are reported as interrupted rather than left silent.
                 Timber.w("Giving up retrieving the sources: the run has spent its budget.");
+                for (HostsSource skipped : outdatedSources.subList(index, outdatedSources.size())) {
+                    this.hostsSourceDao.updateLastUpdateError(skipped.getId(), SourceFailure.ABORTED);
+                    failedSources.add(skipped.getLabel());
+                }
                 break;
             }
-            int sourceId = source.getId();
             listener.onSourceUpdateStarted(index, outdatedSources.size(), source.getLabel(), true);
-            numberOfCopies++;
-            try {
-                retrieveSource(source);
-                // Unknown for a source that could not be checked, which is retrieved anyway once
-                // it goes stale; its local date then stands in as the date of the copy.
-                ZonedDateTime onlineModificationDate = plan.getOnlineModificationDates().get(sourceId);
-                // Update local and online modification dates to now
-                ZonedDateTime localModificationDate =
-                        onlineModificationDate != null && onlineModificationDate.isAfter(now)
-                                ? onlineModificationDate
-                                : now;
-                this.hostsSourceDao.updateModificationDates(sourceId, localModificationDate, onlineModificationDate);
-                // Update size
-                this.hostsSourceDao.updateSize(sourceId);
-                budget.recordSuccess();
-            } catch (IOException e) {
-                Timber.w(e, "Failed to retrieve host source %s.", source.getUrl());
-                numberOfFailedCopies++;
+            String failure = retrieveWithRetry(source, budget);
+            if (failure != null) {
+                Timber.w("Skipping host source %s: %s.", source.getUrl(), failure);
+                this.hostsSourceDao.updateLastUpdateError(sourceId, failure);
+                failedSources.add(source.getLabel());
                 budget.recordFailure();
+                continue;
             }
+            // Unknown for a source that could not be checked, which is retrieved anyway once it
+            // goes stale; its local date then stands in as the date of the copy on the device.
+            ZonedDateTime onlineModificationDate = plan.getOnlineModificationDates().get(sourceId);
+            // Update local and online modification dates to now
+            ZonedDateTime localModificationDate =
+                    onlineModificationDate != null && onlineModificationDate.isAfter(now)
+                            ? onlineModificationDate
+                            : now;
+            this.hostsSourceDao.updateModificationDates(sourceId, localModificationDate, onlineModificationDate);
+            // Update size
+            this.hostsSourceDao.updateSize(sourceId);
+            this.hostsSourceDao.updateLastUpdateError(sourceId, null);
+            budget.recordSuccess();
         }
-        // Check if all copies failed
-        if (numberOfCopies == numberOfFailedCopies && numberOfCopies != 0) {
-            throw new HostErrorException(DOWNLOAD_FAILED);
+        if (failedSources.isEmpty()) {
+            NotificationHelper.clearSourceUpdateFailureNotification(this.context);
+        } else {
+            NotificationHelper.showSourceUpdateFailureNotification(this.context, failedSources);
         }
         // Synchronize hosts entries
         syncHostEntries();
         // Mark no update available
         this.updateAvailable.postValue(false);
+    }
+
+    /**
+     * Retrieve a source, trying a second time if the first attempt fails.
+     *
+     * @param source The source to retrieve.
+     * @param budget What the run is allowed to spend; no second attempt is made once it is spent.
+     * @return Why the source could not be retrieved, or {@code null} once it was.
+     */
+    @Nullable
+    private String retrieveWithRetry(HostsSource source, UpdateBudget budget) {
+        String failure = null;
+        for (int attempt = 1; attempt <= RETRIEVAL_ATTEMPTS; attempt++) {
+            try {
+                retrieveSource(source);
+                return null;
+            } catch (IOException | SecurityException e) {
+                Timber.w(e, "Attempt %d to retrieve host source %s failed.", attempt, source.getUrl());
+                failure = SourceFailure.of(e, source.getType() == FILE);
+                if (attempt < RETRIEVAL_ATTEMPTS && !budget.timedOut()) {
+                    SystemClock.sleep(RETRY_DELAY.toMillis());
+                } else {
+                    break;
+                }
+            }
+        }
+        return failure;
     }
 
     /**
@@ -575,6 +623,11 @@ public class SourceModel {
             if (response.code() == HTTP_NOT_MODIFIED) {
                 Timber.d("Source %s was not updated since last fetch.", source.getUrl());
                 return;
+            }
+            // An error page is not a hosts list. It used to be parsed as one, which replaced the
+            // source's hosts with whatever the page happened to contain, usually nothing.
+            if (!response.isSuccessful()) {
+                throw new SourceHttpException(response.code());
             }
             // Extract ETag if present
             String entityTag = response.header(ENTITY_TAG_HEADER);

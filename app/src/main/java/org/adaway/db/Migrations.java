@@ -151,4 +151,14 @@ final class Migrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS `index_hosts_lists_source_id_type_host` ON `hosts_lists` (`source_id`, `type`, `host`)");
         }
     };
+
+    /**
+     * Migration script from v10 to v11.
+     */
+    static final Migration MIGRATION_10_11 = new Migration(10, 11) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            database.execSQL("ALTER TABLE `hosts_sources` ADD COLUMN `last_update_error` TEXT");
+        }
+    };
 }

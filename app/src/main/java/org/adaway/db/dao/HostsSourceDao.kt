@@ -98,6 +98,12 @@ interface HostsSourceDao {
     @Query("SELECT count(id) FROM hosts_sources WHERE enabled = 1 AND last_modified_online <= last_modified_local")
     fun countUpToDate(): LiveData<Int>
 
-    @Query("UPDATE hosts_sources SET last_modified_local = NULL, last_modified_online = NULL, entityTag = NULL, size = 0 WHERE id = :id")
+    /**
+     * Record why the last retrieval of a source failed, or `null` once it succeeds.
+     */
+    @Query("UPDATE hosts_sources SET last_update_error = :error WHERE id = :id")
+    fun updateLastUpdateError(id: Int, error: String?)
+
+    @Query("UPDATE hosts_sources SET last_modified_local = NULL, last_modified_online = NULL, entityTag = NULL, size = 0, last_update_error = NULL WHERE id = :id")
     fun clearProperties(id: Int)
 }

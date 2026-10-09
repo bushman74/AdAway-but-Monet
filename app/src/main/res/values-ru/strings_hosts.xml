@@ -17,4 +17,13 @@
     <string name="hosts_edit_dialog_title">Редактировать источник</string>
     <string name="hosts_dialog_url">URL: (ресурс https:// или file://)</string>
     <string name="hosts_dialog_url_hint">URL-адрес источника хостов</string>
+    <string name="hosts_source_last_update_failed">Последнее обновление не удалось: %1$s</string>
+    <string name="source_failure_http">Ошибка %1$d</string>
+    <string name="source_failure_timeout">Время ожидания истекло</string>
+    <string name="source_failure_unknown_host">Сервер не найден</string>
+    <string name="source_failure_connection">Не удалось подключиться</string>
+    <string name="source_failure_secure_connection">Не удалось установить защищённое соединение</string>
+    <string name="source_failure_file">Не удалось прочитать файл</string>
+    <string name="source_failure_aborted">Обновление прервано</string>
+    <string name="source_failure_other">Неизвестная ошибка</string>
 </resources>

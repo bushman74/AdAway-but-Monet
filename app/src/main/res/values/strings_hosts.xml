@@ -17,4 +17,13 @@
     <string name="hosts_edit_dialog_title">Edit source</string>
     <string name="hosts_dialog_url">URL: (a https:// or file:// resource)</string>
     <string name="hosts_dialog_url_hint">The hosts source URL</string>
+    <string name="hosts_source_last_update_failed">Last update failed: %1$s</string>
+    <string name="source_failure_http">Error %1$d</string>
+    <string name="source_failure_timeout">Connection timed out</string>
+    <string name="source_failure_unknown_host">Server not found</string>
+    <string name="source_failure_connection">Connection failed</string>
+    <string name="source_failure_secure_connection">Secure connection failed</string>
+    <string name="source_failure_file">File could not be read</string>
+    <string name="source_failure_aborted">Update interrupted</string>
+    <string name="source_failure_other">Unknown error</string>
 </resources>

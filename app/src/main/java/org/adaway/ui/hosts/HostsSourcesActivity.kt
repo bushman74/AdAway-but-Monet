@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -37,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.adaway.R
 import org.adaway.db.entity.HostsSource
+import org.adaway.model.source.SourceFailure
 import org.adaway.ui.adblocking.ApplyConfigurationSnackbar
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
 import org.adaway.ui.compose.ExpressiveAsymmetricShape2
@@ -270,6 +272,21 @@ private fun HostsSourceCard(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
+
+                // A source the last update had to skip says why, under its usual status.
+                val lastUpdateError = source.lastUpdateError
+                if (source.isEnabled && lastUpdateError != null) {
+                    val context = LocalContext.current
+                    Text(
+                        text = stringResource(
+                            R.string.hosts_source_last_update_failed,
+                            SourceFailure.describe(context, lastUpdateError)
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                    )
                 }
             }
         }

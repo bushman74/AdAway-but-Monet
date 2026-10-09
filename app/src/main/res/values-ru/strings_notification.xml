@@ -10,4 +10,10 @@
     <!-- VPN notification -->
     <string name="notification_vpn_channel_name">VPN</string>
     <string name="notification_vpn_channel_description">Уведомления о работе VPN</string>
+    <plurals name="notification_source_update_failed_title">
+        <item quantity="one">Не удалось обновить %d источник</item>
+        <item quantity="few">Не удалось обновить %d источника</item>
+        <item quantity="many">Не удалось обновить %d источников</item>
+        <item quantity="other">Не удалось обновить %d источника</item>
+    </plurals>
 </resources>
