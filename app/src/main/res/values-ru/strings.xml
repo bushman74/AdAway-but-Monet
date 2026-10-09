@@ -287,4 +287,6 @@
     <string name="permission_send_command_label">Отправить команды в AdAway</string>
     <string name="permission_send_command_description">Разрешить AdAway отправлять такие команды, как включение или отключение общесистемной блокировки рекламы.</string>
 
+    <string name="tile_ad_blocking_turning_on">Включается…</string>
+    <string name="tile_ad_blocking_turning_off">Выключается…</string>
 </resources>

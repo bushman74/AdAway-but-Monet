@@ -60,6 +60,14 @@ class RootModel(context: Context) : AdBlockModel(context) {
     private val metadataDao: MetadataDao
     private val modelScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * Held while the hosts file is read or changed. The check made when the model is built runs
+     * in the background, and a quick settings tile builds the model only to change the file at
+     * once. Without it the check could read the file before the change and record what it read
+     * after the change, undoing the state the change recorded.
+     */
+    private val hostsFileLock = Any()
+
     init {
         val database = AppDatabase.getInstance(context)
         this.hostsSourceDao = database.hostsSourceDao()
@@ -73,7 +81,7 @@ class RootModel(context: Context) : AdBlockModel(context) {
     override fun getMethod(): AdBlockMethod = ROOT
 
     @Throws(HostErrorException::class)
-    override fun apply() {
+    override fun apply() = synchronized(hostsFileLock) {
         setState(R.string.status_apply_sources)
         setState(R.string.status_create_new_hosts)
         createNewHostsFile()
@@ -85,7 +93,7 @@ class RootModel(context: Context) : AdBlockModel(context) {
     }
 
     @Throws(HostErrorException::class)
-    override fun revert() {
+    override fun revert() = synchronized(hostsFileLock) {
         setState(R.string.status_revert)
         try {
             revertHostFile()
@@ -151,7 +159,7 @@ class RootModel(context: Context) : AdBlockModel(context) {
         TcpdumpUtils.clearLogFile(this.context)
     }
 
-    private fun checkApplied() {
+    private fun checkApplied() = synchronized(hostsFileLock) {
         var isApplied = false
         val result = Shell.cmd("head -n 1 $ANDROID_SYSTEM_ETC_HOSTS").exec()
         if (!result.isSuccess) {
