@@ -39,6 +39,7 @@ import org.adaway.util.Constants.LOCALHOST_IPV4
 import org.adaway.util.Constants.LOCALHOST_IPV6
 import org.adaway.util.WebServerUtils
 import timber.log.Timber
+import java.io.BufferedOutputStream
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
@@ -176,10 +177,6 @@ class RootModel(context: Context) : AdBlockModel(context) {
         }
     }
 
-    private fun deleteNewHostsFile() {
-        this.context.deleteFile(HOSTS_FILENAME)
-    }
-
     @Throws(HostErrorException::class)
     private fun copyNewHostsFile() {
         try {
@@ -196,16 +193,31 @@ class RootModel(context: Context) : AdBlockModel(context) {
             Timber.d("Reusing the generated hosts file: its fingerprint is unchanged.")
             return
         }
-        deleteNewHostsFile()
         // Only the regeneration is worth reporting: reusing the file is immediate.
         ProgressNotifications.report(this.context, ProgressNotifications.Kind.APPLY_CONFIGURATION, 0)
+        // Written aside, then moved over the previous file in one step. A file written in place
+        // and cut short, by a full storage or the process being killed, kept the fingerprint at
+        // its top and was later reused, then copied to the system, as if it were complete.
+        val temporaryFile = this.context.getFileStreamPath(TEMPORARY_HOSTS_FILENAME)
         try {
-            BufferedWriter(OutputStreamWriter(this.context.openFileOutput(HOSTS_FILENAME, MODE_PRIVATE))).use { writer ->
+            this.context.openFileOutput(TEMPORARY_HOSTS_FILENAME, MODE_PRIVATE).use { output ->
+                val writer = BufferedWriter(
+                    OutputStreamWriter(BufferedOutputStream(output, WRITE_BUFFER_SIZE), Charsets.UTF_8),
+                    WRITE_BUFFER_SIZE
+                )
                 writeHostsHeader(writer, fingerprint)
                 writeLoopbackToHosts(writer)
                 writeHosts(writer)
+                writer.flush()
+                // On the storage before the move, so the moved file is never one still partly
+                // in memory when the device stops.
+                output.fd.sync()
+            }
+            if (!temporaryFile.renameTo(this.context.getFileStreamPath(HOSTS_FILENAME))) {
+                throw IOException("Failed to replace the generated hosts file.")
             }
         } catch (exception: IOException) {
+            temporaryFile.delete()
             throw HostErrorException(PRIVATE_FILE_FAILED, exception)
         } finally {
             ProgressNotifications.done(this.context, ProgressNotifications.Kind.APPLY_CONFIGURATION)
@@ -289,6 +301,9 @@ class RootModel(context: Context) : AdBlockModel(context) {
         val redirectionIpv6 = PreferenceHelper.getRedirectionIpv6(this.context)
         val enableIpv6 = PreferenceHelper.getEnableIpv6(this.context)
 
+        // The start of every blocked line, built once rather than once per line.
+        val blockedPrefix = "$redirectionIpv4 "
+        val blockedPrefixIpv6 = "$redirectionIpv6 "
         // Read the entries in pages: materialising millions of them at once was a large
         // allocation spike for no benefit, since each one is written and then discarded.
         val progress = ProgressReporter(this.hostEntryDao.count) { percent ->
@@ -301,15 +316,21 @@ class RootModel(context: Context) : AdBlockModel(context) {
             hostOf = { it.host },
             action = { entry ->
                 progress.increment()
+                // Written piece by piece: a line built as a string first made two short-lived
+                // objects per line, millions per file.
                 val hostname = entry.host
                 if (entry.type == REDIRECTED) {
-                    writer.write("${entry.redirection} $hostname")
+                    writer.write(entry.redirection ?: "null")
+                    writer.write(' '.code)
+                    writer.write(hostname)
                     writer.newLine()
                 } else {
-                    writer.write("$redirectionIpv4 $hostname")
+                    writer.write(blockedPrefix)
+                    writer.write(hostname)
                     writer.newLine()
                     if (enableIpv6) {
-                        writer.write("$redirectionIpv6 $hostname")
+                        writer.write(blockedPrefixIpv6)
+                        writer.write(hostname)
                         writer.newLine()
                     }
                 }
@@ -355,8 +376,10 @@ class RootModel(context: Context) : AdBlockModel(context) {
                     throw CommandException("Failed to remount hosts file partition as read-write.")
                 }
             }
+            // Copied a megabyte at a time: by default dd copies 512 bytes at a time, which takes
+            // hundreds of thousands of reads and writes for a large hosts file.
             val result = Shell.cmd(
-                "dd if=$privateFile of=$target",
+                "dd if=$privateFile of=$target bs=$COPY_BLOCK_SIZE",
                 "$COMMAND_CHOWN $target",
                 "$COMMAND_CHMOD_644 $target"
             ).exec()
@@ -385,5 +408,20 @@ class RootModel(context: Context) : AdBlockModel(context) {
          * Generous enough to cover the source list, bounded so a corrupted file is not read whole.
          */
         private const val FINGERPRINT_HEADER_SCAN_LINES = 200
+
+        /**
+         * The file the hosts file is written to before it replaces the previous one.
+         */
+        private const val TEMPORARY_HOSTS_FILENAME = "$HOSTS_FILENAME.tmp"
+
+        /**
+         * The size of the buffers the hosts file is written through, in characters then bytes.
+         */
+        private const val WRITE_BUFFER_SIZE = 64 * 1024
+
+        /**
+         * The number of bytes dd copies at a time.
+         */
+        private const val COPY_BLOCK_SIZE = 1024 * 1024
     }
 }
