@@ -129,8 +129,9 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
             _refreshing.value = true
             try {
                 val logItems = withContext(Dispatchers.IO) {
+                    // Kotlin's collection functions, not Java streams: Stream.toList() only exists
+                    // from Android 14 and crashed the screen on older versions.
                     adBlockModel.requests
-                        .parallelStream()
                         .map { request ->
                             LogEntry(
                                 request.host,
@@ -138,8 +139,7 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                                 request.lastSeen
                             )
                         }
-                        .sorted(_sort.value.comparator())
-                        .toList()
+                        .sortedWith(_sort.value.comparator())
                 }
                 _logs.value = logItems
             } catch (exception: CancellationException) {
