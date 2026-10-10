@@ -25,6 +25,8 @@ import org.adaway.db.entity.HostsSource.USER_SOURCE_ID
 import org.adaway.db.entity.ListType
 import org.adaway.model.adblocking.AdBlockMethod
 import org.adaway.model.adblocking.AdBlockModel
+import org.adaway.model.vpn.VpnModel
+import org.adaway.vpn.VpnStatusRepository
 import org.adaway.util.ExpressiveToast
 import timber.log.Timber
 
@@ -61,6 +63,13 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
     val recording: StateFlow<Boolean> = _recording
 
     /**
+     * Whether recording can be started. Without root, DNS requests are only seen by the VPN, so
+     * nothing can be recorded while it is off.
+     */
+    private val _recordingAvailable = MutableStateFlow(true)
+    val recordingAvailable: StateFlow<Boolean> = _recordingAvailable
+
+    /**
      * Whether the recording is being started or stopped right now.
      *
      * Starting a capture goes through a privileged shell and waits for the capture to prove it is
@@ -84,7 +93,10 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
     val loaded: StateFlow<Boolean> = _loaded
 
     init {
-        refreshRecordingState()
+        // Read again whenever the VPN starts or stops, so the screen follows it while open.
+        viewModelScope.launch {
+            VpnStatusRepository.status.collect { refreshRecordingState() }
+        }
     }
 
     /**
@@ -94,7 +106,11 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun refreshRecordingState() {
         viewModelScope.launch {
-            _recording.value = withContext(Dispatchers.IO) { adBlockModel.isRecordingLogs }
+            val model = adBlockModel
+            withContext(Dispatchers.IO) {
+                _recording.value = model.isRecordingLogs
+                _recordingAvailable.value = model !is VpnModel || model.canRecordLogs()
+            }
         }
     }
 
@@ -180,6 +196,7 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                     adBlockModel.isRecordingLogs
                 }
                 _recordingMessage.value = buildRecordingMessage()
+                refreshRecordingState()
             } finally {
                 _togglingRecording.value = false
             }

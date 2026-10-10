@@ -290,4 +290,5 @@
     <string name="tile_ad_blocking_turning_on">Включается…</string>
     <string name="tile_ad_blocking_turning_off">Выключается…</string>
     <string name="more_options_description">Другие действия</string>
+    <string name="dns_recording_error_vpn_stopped">Без root запросы DNS записывает VPN, блокирующий рекламу, а он не запущен. Сначала включите блокировку рекламы.</string>
 </resources>

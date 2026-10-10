@@ -38,6 +38,10 @@ public class VpnModel extends AdBlockModel {
      */
     private final LinkedHashMap<String, Instant> logs;
     private boolean recordingLogs;
+    /**
+     * Why the last attempt to start recording was refused, or {@code null}.
+     */
+    private volatile String recordingFailure;
     private int requestCount;
 
     /**
@@ -82,17 +86,44 @@ public class VpnModel extends AdBlockModel {
     @Override
     public void revert() {
         VpnServiceControls.stop(this.context);
+        // Nothing can be recorded once the VPN is off, so the recording ends with it.
+        this.recordingLogs = false;
         setApplied(false);
     }
 
+    /**
+     * Without root, DNS requests are only seen by the VPN, so nothing is recorded while it is off.
+     */
     @Override
     public boolean isRecordingLogs() {
-        return this.recordingLogs;
+        return this.recordingLogs && VpnServiceControls.isRunning(this.context);
+    }
+
+    /**
+     * Start or stop recording. Starting is refused while the VPN is off: there would be nothing
+     * to record, yet the screen showed a recording in progress.
+     */
+    @Override
+    public void setRecordingLogs(boolean recording) {
+        if (recording && !VpnServiceControls.isRunning(this.context)) {
+            this.recordingFailure = this.context.getString(R.string.dns_recording_error_vpn_stopped);
+            this.recordingLogs = false;
+            return;
+        }
+        this.recordingFailure = null;
+        this.recordingLogs = recording;
     }
 
     @Override
-    public void setRecordingLogs(boolean recording) {
-        this.recordingLogs = recording;
+    public String getRecordingFailure() {
+        return this.recordingFailure;
+    }
+
+    /**
+     * Tell whether recording can be started: only while the VPN runs.
+     */
+    public boolean canRecordLogs() {
+        return VpnServiceControls.isRunning(this.context);
     }
 
     @Override

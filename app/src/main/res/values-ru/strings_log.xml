@@ -11,4 +11,5 @@
     <string name="log_clear_title">Очистить записанные запросы?</string>
     <string name="log_clear_message">Все записанные DNS-запросы будут удалены.</string>
     <string name="log_clear_confirm">Очистить</string>
+    <string name="log_recording_needs_vpn">Включите блокировку рекламы, чтобы записывать запросы DNS</string>
 </resources>

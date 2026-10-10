@@ -129,6 +129,7 @@ internal fun LogRoute(
     var redirectHost by remember { mutableStateOf<String?>(null) }
     var clearRequested by remember { mutableStateOf(false) }
     val recording by viewModel.recording.collectAsStateWithLifecycle()
+    val recordingAvailable by viewModel.recordingAvailable.collectAsStateWithLifecycle()
     val togglingRecording by viewModel.togglingRecording.collectAsStateWithLifecycle()
     val recordingMessage by viewModel.recordingMessage.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
@@ -162,6 +163,7 @@ internal fun LogRoute(
         logs = logs,
         loaded = loaded,
         recording = recording,
+        recordingAvailable = recordingAvailable,
         togglingRecording = togglingRecording,
         refreshing = refreshing,
         searchQuery = searchQuery,
@@ -243,6 +245,7 @@ private fun LogScreen(
     logs: List<LogEntry>,
     loaded: Boolean,
     recording: Boolean,
+    recordingAvailable: Boolean,
     togglingRecording: Boolean,
     refreshing: Boolean,
     searchQuery: String,
@@ -333,6 +336,7 @@ private fun LogScreen(
                 }
                 RecordingButton(
                     recording = recording,
+                    available = recordingAvailable || recording,
                     busy = togglingRecording,
                     onClick = onToggleRecording
                 )
@@ -344,7 +348,11 @@ private fun LogScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            RecordingStatus(recording = recording, busy = togglingRecording)
+            RecordingStatus(
+                recording = recording,
+                available = recordingAvailable,
+                busy = togglingRecording
+            )
 
             PullToRefreshBox(
                 isRefreshing = refreshing,
@@ -409,11 +417,12 @@ private fun LogScreen(
  * Starting a capture takes a moment, and without this the screen looked inert until it finished.
  */
 @Composable
-private fun RecordingStatus(recording: Boolean, busy: Boolean) {
+private fun RecordingStatus(recording: Boolean, available: Boolean, busy: Boolean) {
     val text = when {
         busy && recording -> stringResource(R.string.log_recording_stopping)
         busy -> stringResource(R.string.log_recording_starting)
         recording -> stringResource(R.string.log_recording_active)
+        !available -> stringResource(R.string.log_recording_needs_vpn)
         else -> null
     }
     val alpha by animateFloatAsState(
@@ -485,12 +494,17 @@ private fun ExportButton(onClick: () -> Unit) {
 @Composable
 private fun RecordingButton(
     recording: Boolean,
+    available: Boolean,
     busy: Boolean,
     onClick: () -> Unit
 ) {
+    // Greyed out while recording cannot start. A press still explains why, rather than doing
+    // nothing.
     val containerColor by animateColorAsState(
         targetValue = if (recording) {
             MaterialTheme.colorScheme.primary
+        } else if (!available) {
+            MaterialTheme.colorScheme.surfaceContainerHighest
         } else {
             MaterialTheme.colorScheme.secondaryContainer
         },
@@ -500,6 +514,8 @@ private fun RecordingButton(
     val contentColor by animateColorAsState(
         targetValue = if (recording) {
             MaterialTheme.colorScheme.onPrimary
+        } else if (!available) {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         } else {
             MaterialTheme.colorScheme.onSecondaryContainer
         },

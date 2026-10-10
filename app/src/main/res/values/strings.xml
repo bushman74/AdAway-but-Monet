@@ -267,6 +267,7 @@
     <string name="updating_source_progress">Updating source %1$d of %2$d…</string>
     <string name="dns_recording_error_title">DNS recording could not start</string>
     <string name="dns_recording_error_no_root">Root access was not granted to AdAway.</string>
+    <string name="dns_recording_error_vpn_stopped">Without root, DNS requests are recorded by the VPN that blocks ads, and it is not running. Turn ad blocking on first.</string>
     <string name="dns_recording_error_missing">The capture program is missing from the installation: %1$s</string>
     <string name="dns_recording_error_log_file">The log file could not be created: %1$s</string>
     <string name="dns_recording_error_start">The capture program could not be started (%1$s).</string>

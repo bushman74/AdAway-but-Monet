@@ -16,6 +16,7 @@
     <string name="log_recording_starting">Starting the recording…</string>
     <string name="log_recording_stopping">Stopping the recording…</string>
     <string name="log_recording_active">Recording DNS requests…</string>
+    <string name="log_recording_needs_vpn">Turn ad blocking on to record DNS requests</string>
     <!-- Export -->
     <string name="log_export_description">Export the recorded requests</string>
     <string name="log_export_success">Recorded requests exported to \'%s\'.</string>
