@@ -85,6 +85,9 @@ android {
     // Do not abort build if lint finds errors
     lint {
         disable 'MissingTranslation'
+        // A call to an API newer than the minimum SDK crashes on older devices, as Stream.toList()
+        // did on the DNS log screen below Android 14. Fatal, so a release build refuses it.
+        fatal 'NewApi'
     }
 }
 
