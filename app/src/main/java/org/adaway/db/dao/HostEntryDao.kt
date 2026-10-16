@@ -8,6 +8,7 @@ import org.adaway.db.entity.HostEntry
 import org.adaway.db.entity.HostListItem
 import org.adaway.db.entity.ListType
 import org.adaway.db.entity.ListType.REDIRECTED
+import java.util.Locale
 import java.util.regex.Pattern
 
 @Dao
@@ -16,19 +17,25 @@ interface HostEntryDao {
      * Remove every entry but the enabled blocked hosts, as blocked entries.
      *
      * The redirected entries go too: they are added again once the blocked hosts are complete,
-     * as a full rebuild would. Each entry is checked against the index of the lists alone.
+     * as a full rebuild would. Each entry is checked against the index of the lists alone. So are
+     * entries holding capitals, left by versions that kept them: the entries are in lower case.
+     * A host listed with capitals has no row matching its entry, so its entry is removed here and
+     * added again by [importBlocked], which costs little as such hosts are rare.
      */
-    @Query("DELETE FROM `host_entries` WHERE `type` != 0 OR `redirection` IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `hosts_lists` WHERE `hosts_lists`.`type` = 0 AND `hosts_lists`.`enabled` = 1 AND `hosts_lists`.`host` = `host_entries`.`host`)")
+    @Query("DELETE FROM `host_entries` WHERE `type` != 0 OR `redirection` IS NOT NULL OR `host` != LOWER(`host`) OR NOT EXISTS (SELECT 1 FROM `hosts_lists` WHERE `hosts_lists`.`type` = 0 AND `hosts_lists`.`enabled` = 1 AND `hosts_lists`.`host` = `host_entries`.`host`)")
     fun removeUnblocked()
 
     /**
-     * Add every enabled blocked host not yet an entry, once each.
+     * Add every enabled blocked host not yet an entry, once each, in lower case.
      *
      * Grouped by host rather than made distinct over every column: the index of the lists then
      * answers it alone, already in host order, and a host is imported once even if two of its
      * rows were ever to differ. A blocked entry has no redirection.
+     *
+     * Host names do not depend on case. The VPN looks each requested host up in lower case, so a
+     * host listed with capitals was only blocked by the hosts file of the root method.
      */
-    @Query("INSERT OR IGNORE INTO `host_entries` SELECT `host`, 0, NULL FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1 GROUP BY `host`")
+    @Query("INSERT OR IGNORE INTO `host_entries` SELECT LOWER(`host`), 0, NULL FROM `hosts_lists` WHERE `type` = 0 AND `enabled` = 1 GROUP BY `host`")
     fun importBlocked()
 
     @get:Query("SELECT host FROM hosts_lists WHERE type = 1 AND enabled = 1")
@@ -80,7 +87,7 @@ interface HostEntryDao {
         val (wildcards, exacts) = enabledAllowedHosts.partition { host ->
             host.indexOf('*') != -1 || host.indexOf('?') != -1
         }
-        exacts.chunked(DELETE_CHUNK_SIZE).forEach(::allowHosts)
+        exacts.map { it.lowercase(Locale.ROOT) }.chunked(DELETE_CHUNK_SIZE).forEach(::allowHosts)
         for (allowedHost in wildcards) {
             val hostPattern = A_CHAR_PATTERN.matcher(
                 ANY_CHAR_PATTERN.matcher(allowedHost).replaceAll("%")
@@ -93,7 +100,7 @@ interface HostEntryDao {
         enabledRedirectedHosts.asSequence()
             .map { redirectedHost ->
                 HostEntry().apply {
-                    host = redirectedHost.host
+                    host = redirectedHost.host.lowercase(Locale.ROOT)
                     type = REDIRECTED
                     redirection = redirectedHost.redirection
                 }

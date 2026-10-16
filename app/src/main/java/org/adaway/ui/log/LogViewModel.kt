@@ -29,6 +29,7 @@ import org.adaway.model.vpn.VpnModel
 import org.adaway.vpn.VpnStatusRepository
 import org.adaway.util.ExpressiveToast
 import timber.log.Timber
+import java.util.Locale
 
 /**
  * A message about the last recording attempt: why it failed, or a limitation of the running one.
@@ -156,7 +157,9 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                         .map { request ->
                             LogEntry(
                                 request.host,
-                                hostEntryDao.getTypeOfHost(request.host),
+                                // The entries are in lower case, as host names do not
+                                // depend on it, while a captured request may hold capitals.
+                                hostEntryDao.getTypeOfHost(request.host.lowercase(Locale.ROOT)),
                                 request.lastSeen
                             )
                         }
