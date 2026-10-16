@@ -21,9 +21,12 @@ import org.adaway.db.entity.ListType.ALLOWED
 import org.adaway.db.entity.ListType.BLOCKED
 import org.adaway.db.entity.ListType.REDIRECTED
 import org.adaway.db.entity.ListedHost
-import org.adaway.ui.lists.ListsFilter.ALL
+import org.adaway.db.dao.HostListQueries
+import org.adaway.helper.PreferenceHelper
+import org.adaway.ui.search.SearchOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -40,11 +45,27 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ListsViewModel(application: Application) : AndroidViewModel(application) {
     private val hostListItemDao: HostListItemDao = AppDatabase.getInstance(application).hostsListItemDao()
     private val hostsSourceDao: HostsSourceDao = AppDatabase.getInstance(application).hostsSourceDao()
-    private val filter = MutableStateFlow(ALL)
+    private val query = MutableStateFlow("")
+    private val _searchOptions = MutableStateFlow(PreferenceHelper.getSearchOptions(application))
+
+    /**
+     * How the search matches, kept across searches and screens.
+     */
+    val searchOptions: StateFlow<SearchOptions> = _searchOptions.asStateFlow()
+
+    /**
+     * The condition the search puts on the hosts, or `null` for none. While the user types, it
+     * waits for a pause, so the lists are not searched again for every letter: each search of a
+     * large list reads all its hosts. Clearing the search applies at once.
+     */
+    private val search: Flow<HostSearch?> =
+        combine(query, _searchOptions) { text, options -> HostSearch.of(text, options) }
+            .distinctUntilChanged()
+            .debounce { condition -> if (condition == null) 0L else SEARCH_DELAY_MILLIS }
 
     /**
      * The name of each source by its id, to label every host with the sources listing it.
@@ -117,19 +138,16 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun search(query: String) {
-        setFilter(ListsFilter(query))
+        this.query.value = query
     }
-
-    fun isSearching(): Boolean = getFilter().query.isNotEmpty()
 
     fun clearSearch() {
-        setFilter(ALL)
+        query.value = ""
     }
 
-    private fun getFilter(): ListsFilter = filter.value
-
-    private fun setFilter(filter: ListsFilter) {
-        this.filter.value = filter
+    fun setSearchOptions(options: SearchOptions) {
+        _searchOptions.value = options
+        PreferenceHelper.setSearchOptions(getApplication(), options)
     }
 
     /**
@@ -177,14 +195,18 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
         val items: Flow<PagingData<ListedHost>> =
-            combine(filter, _selectedSource) { currentFilter, sourceId -> currentFilter to sourceId }
-                .flatMapLatest { (currentFilter, sourceId) ->
+            combine(search, _selectedSource) { condition, sourceId -> condition to sourceId }
+                .flatMapLatest { (condition, sourceId) ->
                     Pager(pagingConfig) {
-                        if (sourceId == null) {
-                            hostListItemDao.loadList(type.value, currentFilter.sqlQuery)
-                        } else {
-                            hostListItemDao.loadSourceList(type.value, sourceId, currentFilter.sqlQuery)
-                        }
+                        hostListItemDao.loadList(
+                            if (sourceId == null) {
+                                HostListQueries.list(type.value, condition?.sql, condition?.argument)
+                            } else {
+                                HostListQueries.sourceList(
+                                    type.value, sourceId, condition?.sql, condition?.argument
+                                )
+                            }
+                        )
                     }.flow
                         // A new search or source starts from an empty list that is loading, so the
                         // screen shows the spinner until its results arrive, as when it opens,
@@ -207,3 +229,8 @@ private val LOADING = LoadStates(
     prepend = LoadState.NotLoading(endOfPaginationReached = false),
     append = LoadState.NotLoading(endOfPaginationReached = false)
 )
+
+/**
+ * How long the search waits for the user to stop typing before reading the lists.
+ */
+private const val SEARCH_DELAY_MILLIS = 300L

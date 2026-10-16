@@ -83,6 +83,7 @@ import org.adaway.ui.compose.ExpressiveSearchField
 import org.adaway.ui.compose.ExpressiveTopBar
 import org.adaway.ui.compose.safeCombinedClickable
 import org.adaway.ui.navigation.ListsRouteDefaults
+import org.adaway.ui.search.SearchOptionsRow
 import org.adaway.util.Clipboard
 import org.adaway.util.RegexUtils
 
@@ -146,6 +147,7 @@ private fun ListsScreen(
     val allowedItems = viewModel.allowed.items.collectAsLazyPagingItems()
     val redirectedItems = viewModel.redirected.items.collectAsLazyPagingItems()
     val sourceLabels by viewModel.sourceLabels.collectAsStateWithLifecycle()
+    val searchOptions by viewModel.searchOptions.collectAsStateWithLifecycle()
 
     var dialogState by remember { mutableStateOf<ListDialogState?>(null) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -241,6 +243,13 @@ private fun ListsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (searchVisible) {
+                SearchOptionsRow(
+                    options = searchOptions,
+                    onOptionsChange = viewModel::setSearchOptions,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
@@ -261,12 +270,13 @@ private fun ListsScreen(
                 val hasPersonalHosts by listPage.hasPersonalHosts.collectAsStateWithLifecycle()
                 val listState = rememberLazyListState()
                 // Results of another search start from the top, not at the position reached in
-                // the previous ones. Only a change of the query scrolls, so a restored screen keeps
-                // its place.
-                var scrolledForQuery by rememberSaveable { mutableStateOf(searchQuery) }
-                LaunchedEffect(searchQuery) {
-                    if (searchQuery != scrolledForQuery) {
-                        scrolledForQuery = searchQuery
+                // the previous ones. Only a change of the query or of its options scrolls, so a
+                // restored screen keeps its place.
+                val searched = "$searchQuery\n${searchOptions.matchCase}${searchOptions.wholeWord}"
+                var scrolledForSearch by rememberSaveable { mutableStateOf(searched) }
+                LaunchedEffect(searched) {
+                    if (searched != scrolledForSearch) {
+                        scrolledForSearch = searched
                         listState.scrollToItem(0)
                     }
                 }

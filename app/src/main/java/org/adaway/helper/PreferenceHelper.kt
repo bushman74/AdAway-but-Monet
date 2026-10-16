@@ -3,6 +3,7 @@ package org.adaway.helper
 import android.content.Context
 import org.adaway.R
 import org.adaway.model.adblocking.AdBlockMethod
+import org.adaway.ui.search.SearchOptions
 import org.adaway.util.Constants
 import org.adaway.vpn.VpnStatus
 
@@ -285,6 +286,28 @@ object PreferenceHelper {
     }
 
     private const val PREF_LAST_KNOWN_AD_BLOCKED = "lastKnownAdBlocked"
+
+    /**
+     * Get how searches match, shared by the lists and the hosts sources.
+     */
+    fun getSearchOptions(context: Context): SearchOptions {
+        val prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+        return SearchOptions(
+            matchCase = prefs.getBoolean(PREF_SEARCH_MATCH_CASE, false),
+            wholeWord = prefs.getBoolean(PREF_SEARCH_WHOLE_WORD, false)
+        )
+    }
+
+    fun setSearchOptions(context: Context, options: SearchOptions) {
+        context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(PREF_SEARCH_MATCH_CASE, options.matchCase)
+            .putBoolean(PREF_SEARCH_WHOLE_WORD, options.wholeWord)
+            .apply()
+    }
+
+    private const val PREF_SEARCH_MATCH_CASE = "searchMatchCase"
+    private const val PREF_SEARCH_WHOLE_WORD = "searchWholeWord"
 
     /**
      * Get the last known DNS recording state, as displayed by the quick settings tile.
