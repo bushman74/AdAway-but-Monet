@@ -81,6 +81,12 @@ interface HostListItemDao {
     @Query("SELECT IFNULL(MAX(id), 0) FROM hosts_lists")
     fun getMaxId(): Long
 
+    /**
+     * Observe whether the user added hosts to a list, to offer filtering on them only then.
+     */
+    @Query("SELECT EXISTS (SELECT 1 FROM hosts_lists WHERE source_id = 1 AND type = :type)")
+    fun hasUserHosts(type: Int): LiveData<Boolean>
+
     @Query("SELECT EXISTS (SELECT 1 FROM hosts_lists WHERE source_id = :sourceId)")
     fun hasSourceHosts(sourceId: Int): Boolean
 

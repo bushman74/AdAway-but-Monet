@@ -258,6 +258,7 @@ private fun ListsScreen(
                 }
                 val sources by listPage.sources.collectAsStateWithLifecycle()
                 val selectedSource by listPage.selectedSource.collectAsStateWithLifecycle()
+                val hasPersonalHosts by listPage.hasPersonalHosts.collectAsStateWithLifecycle()
                 val listState = rememberLazyListState()
                 // Results of another search start from the top, not at the position reached in
                 // the previous ones. Only a change of the query scrolls, so a restored screen keeps
@@ -273,6 +274,7 @@ private fun ListsScreen(
                 Column(modifier = Modifier.fillMaxSize()) {
                     SourceFilterRow(
                         sources = sources,
+                        hasPersonalHosts = hasPersonalHosts,
                         selectedSource = selectedSource,
                         onSourceSelected = { sourceId ->
                             listPage.selectSource(sourceId)
@@ -349,6 +351,7 @@ private fun ListsBottomNavigation(
 @Composable
 private fun SourceFilterRow(
     sources: List<HostsSource>,
+    hasPersonalHosts: Boolean,
     selectedSource: Int?,
     onSourceSelected: (Int?) -> Unit
 ) {
@@ -366,13 +369,16 @@ private fun SourceFilterRow(
                 onClick = { onSourceSelected(null) }
             )
         }
-        item(key = "personal") {
-            val selected = selectedSource == HostsSource.USER_SOURCE_ID
-            SourceFilterChip(
-                label = stringResource(R.string.lists_filter_personal),
-                selected = selected,
-                onClick = { onSourceSelected(if (selected) null else HostsSource.USER_SOURCE_ID) }
-            )
+        // Only offered once the list holds hosts the user added.
+        if (hasPersonalHosts) {
+            item(key = "personal") {
+                val selected = selectedSource == HostsSource.USER_SOURCE_ID
+                SourceFilterChip(
+                    label = stringResource(R.string.lists_filter_personal),
+                    selected = selected,
+                    onClick = { onSourceSelected(if (selected) null else HostsSource.USER_SOURCE_ID) }
+                )
+            }
         }
         items(items = sources, key = { source -> source.id }) { source ->
             val selected = selectedSource == source.id

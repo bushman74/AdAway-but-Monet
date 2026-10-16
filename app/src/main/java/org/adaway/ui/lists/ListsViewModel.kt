@@ -162,6 +162,20 @@ class ListsViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+        /**
+         * Whether the user added hosts to this list, which is when the Personal filter is offered.
+         * When the last one is removed while that filter is chosen, the tab goes back to every
+         * source, as for a source that stops listing hosts.
+         */
+        val hasPersonalHosts: StateFlow<Boolean> =
+            hostListItemDao.hasUserHosts(type.value).asFlow()
+                .onEach { has ->
+                    if (!has && _selectedSource.value == USER_SOURCE_ID) {
+                        _selectedSource.value = null
+                    }
+                }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
         val items: Flow<PagingData<ListedHost>> =
             combine(filter, _selectedSource) { currentFilter, sourceId -> currentFilter to sourceId }
                 .flatMapLatest { (currentFilter, sourceId) ->
