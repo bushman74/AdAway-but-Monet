@@ -10,6 +10,7 @@ import org.adaway.R;
 import org.adaway.db.AppDatabase;
 import org.adaway.db.dao.HostEntryDao;
 import org.adaway.db.entity.HostEntry;
+import org.adaway.helper.NotificationHelper;
 import org.adaway.helper.PreferenceHelper;
 import org.adaway.model.adblocking.AdBlockMethod;
 import org.adaway.model.adblocking.AdBlockModel;
@@ -81,7 +82,8 @@ public class VpnModel extends AdBlockModel {
         this.recordingLogs = false;
         this.requestCount = 0;
         setApplied(VpnServiceControls.isRunning(context));
-        // Nothing is recorded yet, whatever another method left remembered for the tile.
+        // Nothing is recorded yet, whatever another method or an ended process left remembered.
+        NotificationHelper.clearDnsRecordingNotification(context);
         rememberRecordingState(false);
     }
 
@@ -154,12 +156,19 @@ public class VpnModel extends AdBlockModel {
 
     /**
      * Remember whether requests are recorded, for the quick settings tile, and have it redrawn
-     * when that changed, as the root method does.
+     * when that changed. As with root, a notification shows while they are recorded and opens
+     * the log.
      */
     private void rememberRecordingState(boolean recording) {
-        if (PreferenceHelper.getLastKnownDnsRecording(this.context) != recording) {
-            PreferenceHelper.setLastKnownDnsRecording(this.context, recording);
-            DnsRecordingTileService.requestUpdate(this.context);
+        if (PreferenceHelper.getLastKnownDnsRecording(this.context) == recording) {
+            return;
+        }
+        PreferenceHelper.setLastKnownDnsRecording(this.context, recording);
+        DnsRecordingTileService.requestUpdate(this.context);
+        if (recording) {
+            NotificationHelper.showDnsRecordingNotification(this.context);
+        } else {
+            NotificationHelper.clearDnsRecordingNotification(this.context);
         }
     }
 
