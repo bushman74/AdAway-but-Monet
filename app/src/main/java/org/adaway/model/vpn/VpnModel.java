@@ -10,10 +10,12 @@ import org.adaway.R;
 import org.adaway.db.AppDatabase;
 import org.adaway.db.dao.HostEntryDao;
 import org.adaway.db.entity.HostEntry;
+import org.adaway.helper.PreferenceHelper;
 import org.adaway.model.adblocking.AdBlockMethod;
 import org.adaway.model.adblocking.AdBlockModel;
 import org.adaway.model.adblocking.DnsRequest;
 import org.adaway.model.error.HostErrorException;
+import org.adaway.tile.DnsRecordingTileService;
 import org.adaway.vpn.VpnServiceControls;
 
 import java.time.Instant;
@@ -37,7 +39,11 @@ public class VpnModel extends AdBlockModel {
      * Written by the VPN thread and read by the screen showing them, so every access is guarded.
      */
     private final LinkedHashMap<String, Instant> logs;
-    private boolean recordingLogs;
+    /**
+     * Whether recording was asked for. Set from the screens and the quick settings tile, and read
+     * by the VPN thread.
+     */
+    private volatile boolean recordingLogs;
     /**
      * Why the last attempt to start recording was refused, or {@code null}.
      */
@@ -63,6 +69,8 @@ public class VpnModel extends AdBlockModel {
         this.recordingLogs = false;
         this.requestCount = 0;
         setApplied(VpnServiceControls.isRunning(context));
+        // Nothing is recorded yet, whatever another method left remembered for the tile.
+        rememberRecordingState(false);
     }
 
     @Override
@@ -88,7 +96,23 @@ public class VpnModel extends AdBlockModel {
         VpnServiceControls.stop(this.context);
         // Nothing can be recorded once the VPN is off, so the recording ends with it.
         this.recordingLogs = false;
+        rememberRecordingState(false);
         setApplied(false);
+    }
+
+    /**
+     * Follow the VPN service when it starts or stops by itself rather than through this model: on
+     * boot, when it restarts after a failure, or when the system hands the VPN to another app.
+     * The home screen follows the service directly, but the quick settings tiles only know the
+     * state remembered for them.
+     *
+     * @param started Whether the service is now started.
+     */
+    public void onVpnStatusChanged(boolean started) {
+        if (PreferenceHelper.getLastKnownAdBlocked(this.context) != started) {
+            setApplied(started);
+        }
+        rememberRecordingState(this.recordingLogs && started);
     }
 
     /**
@@ -108,10 +132,23 @@ public class VpnModel extends AdBlockModel {
         if (recording && !VpnServiceControls.isRunning(this.context)) {
             this.recordingFailure = this.context.getString(R.string.dns_recording_error_vpn_stopped);
             this.recordingLogs = false;
+            rememberRecordingState(false);
             return;
         }
         this.recordingFailure = null;
         this.recordingLogs = recording;
+        rememberRecordingState(recording);
+    }
+
+    /**
+     * Remember whether requests are recorded, for the quick settings tile, and have it redrawn
+     * when that changed, as the root method does.
+     */
+    private void rememberRecordingState(boolean recording) {
+        if (PreferenceHelper.getLastKnownDnsRecording(this.context) != recording) {
+            PreferenceHelper.setLastKnownDnsRecording(this.context, recording);
+            DnsRecordingTileService.requestUpdate(this.context);
+        }
     }
 
     @Override

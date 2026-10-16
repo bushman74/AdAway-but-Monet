@@ -2,12 +2,16 @@ package org.adaway.tile
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile.STATE_ACTIVE
 import android.service.quicksettings.Tile.STATE_INACTIVE
 import android.service.quicksettings.TileService
+import android.widget.Toast
 import org.adaway.AdAwayApplication
 import org.adaway.helper.PreferenceHelper
 import org.adaway.model.adblocking.AdBlockMethod.ROOT
+import org.adaway.model.adblocking.AdBlockMethod.UNDEFINED
 import org.adaway.model.adblocking.AdBlockModel
 import org.adaway.util.CoroutineDispatchers
 import timber.log.Timber
@@ -49,11 +53,20 @@ class DnsRecordingTileService : TileService() {
         try {
             // The model is only built here: acting on the tile is an explicit request.
             val model = model
-            if (model.method != ROOT) {
-                Timber.i("DNS recording is only available with the root method.")
+            if (model.method == UNDEFINED) {
+                Timber.i("DNS recording needs an ad blocking method.")
                 return
             }
             model.setRecordingLogs(!model.isRecordingLogs)
+            // The root method reports its failures in a notification. Without root, recording is
+            // refused while the VPN is off, which the tile alone could not tell.
+            val failure = model.recordingFailure
+            if (failure != null && model.method != ROOT) {
+                val context = applicationContext
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(context, failure, Toast.LENGTH_LONG).show()
+                }
+            }
             // Report the state the capture actually ended in rather than the requested one. The
             // model is what remembers it, so the tile reads it back rather than writing its own.
             updateTile(model.isRecordingLogs)

@@ -22,6 +22,7 @@ import android.os.Looper
 import android.os.Message
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import org.adaway.AdAwayApplication
 import org.adaway.R
 import org.adaway.broadcast.Command
 import org.adaway.broadcast.Command.START
@@ -32,6 +33,8 @@ import org.adaway.helper.NotificationHelper.VPN_RESUME_SERVICE_NOTIFICATION_ID
 import org.adaway.helper.NotificationHelper.VPN_RUNNING_SERVICE_NOTIFICATION_ID
 import org.adaway.helper.NotificationHelper.VPN_SERVICE_NOTIFICATION_CHANNEL
 import org.adaway.helper.PreferenceHelper
+import org.adaway.model.adblocking.AdBlockMethod
+import org.adaway.model.vpn.VpnModel
 import org.adaway.ui.home.HomeActivity
 import org.adaway.vpn.VpnStatus.RECONNECTING
 import org.adaway.vpn.VpnStatus.RUNNING
@@ -146,6 +149,12 @@ class VpnService : android.net.VpnService(), Handler.Callback {
             }
         }
         VpnStatusRepository.update(status)
+        // Only checked against the method: building the model of another one would read the
+        // system hosts file.
+        if (PreferenceHelper.getAdBlockMethod(this) == AdBlockMethod.VPN) {
+            ((application as AdAwayApplication).adBlockModel as? VpnModel)
+                ?.onVpnStatusChanged(status.isStarted)
+        }
     }
 
     private fun getNotification(status: VpnStatus): Notification {
