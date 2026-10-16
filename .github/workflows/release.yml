@@ -13,6 +13,10 @@ on:
         description: 'The tag to publish, such as v6.1.6-pre.1'
         required: true
         type: string
+      ci_run:
+        description: 'Publish the APK an Android CI run already built, by its run id, instead of building again'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +29,7 @@ jobs:
 
     permissions:
       contents: write
+      actions: read
 
     steps:
       # Name git's default branch before checkout creates the repository, so git does not
@@ -38,6 +43,7 @@ jobs:
         run: echo "RELEASE_TAG=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - name: Set up JDK 21
+        if: ${{ !inputs.ci_run }}
         uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
@@ -45,18 +51,38 @@ jobs:
           cache: 'gradle'
 
       - name: Run unit tests
+        if: ${{ !inputs.ci_run }}
         run: ./gradlew test --stacktrace
 
       - name: Build with Gradle
+        if: ${{ !inputs.ci_run }}
         run: ./gradlew assembleRelease --stacktrace
 
       # No signing keys are configured here, so Gradle leaves the build unsigned. The name says so,
       # because whoever downloads it has to sign it before a device will install it.
       - name: Name the APK
+        if: ${{ !inputs.ci_run }}
         run: |
           mkdir -p build/artifacts
           cp app/build/outputs/apk/release/app-release-unsigned.apk \
             "build/artifacts/AdAway-${RELEASE_TAG}-unsigned.apk"
+
+      # The same unsigned release build Android CI makes, tested there already, so it is not
+      # built a second time.
+      - name: Take the APK built by Android CI
+        if: ${{ inputs.ci_run }}
+        uses: actions/download-artifact@v8
+        with:
+          name: AdAway-development.apk
+          path: build/ci
+          run-id: ${{ inputs.ci_run }}
+          github-token: ${{ github.token }}
+
+      - name: Name the APK from Android CI
+        if: ${{ inputs.ci_run }}
+        run: |
+          mkdir -p build/artifacts
+          cp build/ci/AdAway-development.apk "build/artifacts/AdAway-${RELEASE_TAG}-unsigned.apk"
 
       # What changed is written for each release in .github/release-notes/<tag>.md, and goes
       # first. Paragraphs are kept on a single line each: GitHub shows every line break.
@@ -85,7 +111,7 @@ jobs:
 
           ## Installing
 
-          Ad blocking needs either root or the VPN based method, which the application asks about when it first starts. The DNS request recording needs root, and a working `tcpdump`, either the one bundled here or the one your system provides.
+          Ad blocking needs either root or the VPN based method, which the application asks about when it first starts. The DNS request recording works with root, through a working `tcpdump`, either the one bundled here or the one your system provides, and without root while the ad-blocking VPN runs.
           NOTES
           sed -i "s/AdAway-TAG-unsigned.apk/AdAway-${RELEASE_TAG}-unsigned.apk/" build/release-notes.md
 
