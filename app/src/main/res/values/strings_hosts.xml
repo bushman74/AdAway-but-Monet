@@ -26,4 +26,7 @@
     <string name="source_failure_file">File could not be read</string>
     <string name="source_failure_aborted">Update interrupted</string>
     <string name="source_failure_other">Unknown error</string>
+    <string name="hosts_sources_search">Search sources</string>
+    <string name="hosts_sources_search_hint">Search name or address…</string>
+    <string name="hosts_sources_search_empty">No sources match the search.</string>
 </resources>

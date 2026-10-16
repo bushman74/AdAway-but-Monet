@@ -1,5 +1,6 @@
 package org.adaway.ui.hosts
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,12 +17,16 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
@@ -43,11 +48,14 @@ import org.adaway.ui.adblocking.ApplyConfigurationSnackbar
 import org.adaway.ui.compose.ExpressiveAsymmetricShape1
 import org.adaway.ui.compose.ExpressiveAsymmetricShape2
 import org.adaway.ui.compose.ExpressiveScaffold
+import org.adaway.ui.compose.ExpressiveSearchField
 import org.adaway.ui.compose.ExpressiveSection
 import org.adaway.ui.compose.ExpressiveStatusDot
 import org.adaway.ui.compose.ExpressiveTopBar
 import org.adaway.ui.compose.formatCompactCount
 import org.adaway.ui.compose.formatFullCount
+import org.adaway.ui.search.SearchOptions
+import org.adaway.ui.search.SearchOptionsRow
 import java.time.Duration
 import java.time.ZonedDateTime
 
@@ -59,6 +67,8 @@ internal fun HostsSourcesRoute(
 ) {
     val rootView = LocalView.current
     val sources by viewModel.hostsSources.collectAsStateWithLifecycle()
+    val matchingSources by viewModel.matchingSources.collectAsStateWithLifecycle()
+    val searchOptions by viewModel.searchOptions.collectAsStateWithLifecycle()
     val blockedHostCount by viewModel.blockedHostCount.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel, rootView) {
@@ -70,7 +80,11 @@ internal fun HostsSourcesRoute(
 
     HostsSourcesScreen(
         sources = sources,
+        matchingSources = matchingSources,
         blockedHostCount = blockedHostCount,
+        searchOptions = searchOptions,
+        onSearch = viewModel::search,
+        onSearchOptionsChange = viewModel::setSearchOptions,
         onNavigateBack = onNavigateBack,
         onAddSource = { onEditSource(null) },
         onToggleSource = viewModel::toggleSourceEnabled,
@@ -111,17 +125,66 @@ private fun SourcesSummaryHeaderCard(sources: List<HostsSource>, blockedHostCoun
 @Composable
 private fun HostsSourcesScreen(
     sources: List<HostsSource>,
+    matchingSources: List<HostsSource>,
     blockedHostCount: Int?,
+    searchOptions: SearchOptions,
+    onSearch: (String) -> Unit,
+    onSearchOptionsChange: (SearchOptions) -> Unit,
     onNavigateBack: () -> Unit,
     onAddSource: () -> Unit,
     onToggleSource: (HostsSource) -> Unit,
     onEditSource: (HostsSource) -> Unit
 ) {
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    // The screen holds the search, so a screen restored with one searches it again.
+    LaunchedEffect(searchQuery) {
+        onSearch(searchQuery)
+    }
+    val closeSearch = {
+        searchVisible = false
+        searchQuery = ""
+    }
+    BackHandler(enabled = searchVisible) {
+        closeSearch()
+    }
+
     ExpressiveScaffold(
         topBar = {
             ExpressiveTopBar(
                 title = stringResource(R.string.hosts_title),
-                onNavigateBack = onNavigateBack
+                onNavigateBack = if (searchVisible) closeSearch else onNavigateBack,
+                titleContent = if (searchVisible) {
+                    {
+                        ExpressiveSearchField(
+                            query = searchQuery,
+                            onQueryChange = { value -> searchQuery = value },
+                            placeholder = stringResource(R.string.hosts_sources_search_hint),
+                            clearContentDescription =
+                                stringResource(R.string.lists_search_clear_description)
+                        )
+                    }
+                } else {
+                    null
+                },
+                actions = {
+                    if (searchVisible) {
+                        IconButton(onClick = closeSearch) {
+                            Icon(
+                                painter = painterResource(R.drawable.baseline_close_24),
+                                contentDescription =
+                                    stringResource(R.string.lists_search_close_description)
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = { searchVisible = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.baseline_search_24),
+                                contentDescription = stringResource(R.string.hosts_sources_search)
+                            )
+                        }
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -149,13 +212,21 @@ private fun HostsSourcesScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (searchVisible) {
+                item(key = "search_options") {
+                    SearchOptionsRow(
+                        options = searchOptions,
+                        onOptionsChange = onSearchOptionsChange
+                    )
+                }
+            }
             if (sources.isNotEmpty()) {
                 item {
                     SourcesSummaryHeaderCard(sources = sources, blockedHostCount = blockedHostCount)
                 }
             }
             itemsIndexed(
-                items = sources,
+                items = matchingSources,
                 key = { _, source -> source.url }
             ) { index, source ->
                 HostsSourceCard(
@@ -165,7 +236,7 @@ private fun HostsSourcesScreen(
                     onEdit = { onEditSource(source) }
                 )
             }
-            if (sources.isEmpty()) {
+            if (matchingSources.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -174,7 +245,13 @@ private fun HostsSourcesScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = stringResource(R.string.hosts_sources_empty),
+                            text = stringResource(
+                                if (sources.isEmpty()) {
+                                    R.string.hosts_sources_empty
+                                } else {
+                                    R.string.hosts_sources_search_empty
+                                }
+                            ),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center

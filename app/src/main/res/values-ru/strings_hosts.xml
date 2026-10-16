@@ -26,4 +26,7 @@
     <string name="source_failure_file">Не удалось прочитать файл</string>
     <string name="source_failure_aborted">Обновление прервано</string>
     <string name="source_failure_other">Неизвестная ошибка</string>
+    <string name="hosts_sources_search">Искать источники</string>
+    <string name="hosts_sources_search_hint">Поиск по имени или адресу…</string>
+    <string name="hosts_sources_search_empty">Нет источников, подходящих под поиск.</string>
 </resources>
