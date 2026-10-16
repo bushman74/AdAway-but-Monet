@@ -2,9 +2,13 @@ package org.adaway.ui.lists
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -145,6 +149,9 @@ private fun ListsScreen(
 
     var dialogState by remember { mutableStateOf<ListDialogState?>(null) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
+    // Whether every host names all its sources. Shared by all rows and tabs: opening the sources
+    // of one host opens them for all, so the list keeps one shape while it is scrolled.
+    var sourcesExpanded by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(pagerState.currentPage) {
@@ -278,6 +285,8 @@ private fun ListsScreen(
                         pagingItems = pagingItems,
                         listState = listState,
                         sourceLabels = sourceLabels,
+                        sourcesExpanded = sourcesExpanded,
+                        onToggleSourcesExpanded = { sourcesExpanded = !sourcesExpanded },
                         showRedirection = tab == ListsTab.REDIRECTED,
                         onToggleItemEnabled = onToggleItemEnabled,
                         onEditItem = { item -> dialogState = ListDialogState.forEdit(tab, item) },
@@ -412,6 +421,8 @@ private fun HostsListPage(
     pagingItems: LazyPagingItems<ListedHost>,
     listState: LazyListState,
     sourceLabels: Map<Int, String>,
+    sourcesExpanded: Boolean,
+    onToggleSourcesExpanded: () -> Unit,
     showRedirection: Boolean,
     onToggleItemEnabled: (HostListItem) -> Unit,
     onEditItem: (HostListItem) -> Unit,
@@ -485,6 +496,8 @@ private fun HostsListPage(
                         enabled = item.isEnabled,
                         editable = item.sourceId == HostsSource.USER_SOURCE_ID,
                         sourceLabels = labels,
+                        sourcesExpanded = sourcesExpanded,
+                        onToggleSourcesExpanded = onToggleSourcesExpanded,
                         showRedirection = showRedirection,
                         shape = if (index % 2 == 0) ExpressiveAsymmetricShape1 else ExpressiveAsymmetricShape2,
                         onToggle = { onToggleItemEnabled(item) },
@@ -519,6 +532,8 @@ private fun HostListRow(
     enabled: Boolean,
     editable: Boolean,
     sourceLabels: List<String>,
+    sourcesExpanded: Boolean,
+    onToggleSourcesExpanded: () -> Unit,
     showRedirection: Boolean,
     shape: Shape,
     onToggle: () -> Unit,
@@ -598,6 +613,8 @@ private fun HostListRow(
                     if (sourceLabels.isNotEmpty()) {
                         SourceTags(
                             labels = sourceLabels,
+                            expanded = sourcesExpanded,
+                            onToggleExpanded = onToggleSourcesExpanded,
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
@@ -628,28 +645,67 @@ private fun HostListRow(
 }
 
 /**
- * The sources listing a host, as small tags under its name. A host listed by many sources would
- * otherwise need several lines, so only the first few are named and the rest are counted.
+ * The sources listing a host, as small tags under its name.
+ *
+ * A host listed by many sources would otherwise take several lines, so only the first few are
+ * named, followed by an arrow opening the others. Opening them on one host opens them on every
+ * host, and the arrow, turned up, closes them all again.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SourceTags(
     labels: List<String>,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        labels.take(MAX_NAMED_SOURCES).forEach { label ->
-            // Long names shrink and end with an ellipsis, so the count after them stays visible.
-            SourceTag(text = label, modifier = Modifier.weight(1f, fill = false))
+    val hidden = labels.size > MAX_NAMED_SOURCES
+    if (expanded && hidden) {
+        FlowRow(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically
+        ) {
+            labels.forEach { label -> SourceTag(text = label) }
+            SourceTagsToggle(expanded = true, onClick = onToggleExpanded)
         }
-        val unnamed = labels.size - MAX_NAMED_SOURCES
-        if (unnamed > 0) {
-            SourceTag(text = "+$unnamed")
+    } else {
+        Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            labels.take(MAX_NAMED_SOURCES).forEach { label ->
+                // Long names shrink and end with an ellipsis, so the arrow after them stays visible.
+                SourceTag(text = label, modifier = Modifier.weight(1f, fill = false))
+            }
+            if (hidden) {
+                SourceTagsToggle(expanded = false, onClick = onToggleExpanded)
+            }
         }
     }
+}
+
+/**
+ * The small arrow after the source tags: down to show every source, up to show the first ones.
+ */
+@Composable
+private fun SourceTagsToggle(expanded: Boolean, onClick: () -> Unit) {
+    Icon(
+        painter = painterResource(R.drawable.ic_expand_more_24),
+        contentDescription = stringResource(
+            if (expanded) R.string.lists_sources_show_less else R.string.lists_sources_show_all
+        ),
+        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp)
+            .size(18.dp)
+            .rotate(if (expanded) 180f else 0f)
+    )
 }
 
 @Composable
@@ -671,7 +727,7 @@ private fun SourceTag(
 }
 
 /**
- * How many sources are named under a host before the rest are only counted.
+ * How many sources are named under a host before the others are folded behind an arrow.
  */
 private const val MAX_NAMED_SOURCES = 2
 

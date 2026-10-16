@@ -24,4 +24,6 @@
     <string name="list_dialog_hostname_hint">URL-адрес источника хостов</string>
     <string name="list_dialog_wildcard">(Допускаются подстановочные символы * и ?)</string>
     <string name="list_dialog_ip">IP (IPv4 или IPv6):</string>
+    <string name="lists_sources_show_all">Показать все источники</string>
+    <string name="lists_sources_show_less">Показать меньше источников</string>
 </resources>

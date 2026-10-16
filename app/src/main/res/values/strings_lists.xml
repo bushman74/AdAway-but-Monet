@@ -28,4 +28,6 @@
     <string name="list_dialog_hostname_hint">The hosts source URL</string>
     <string name="list_dialog_wildcard">(Wildcard characters * and ? are allowed)</string>
     <string name="list_dialog_ip">IP (IPv4 or IPv6):</string>
+    <string name="lists_sources_show_all">Show every source</string>
+    <string name="lists_sources_show_less">Show fewer sources</string>
 </resources>
