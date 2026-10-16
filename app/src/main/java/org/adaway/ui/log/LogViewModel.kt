@@ -122,7 +122,12 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
             return RecordingMessage(R.string.dns_recording_error_title, failure)
         }
         val warning = adBlockModel.recordingWarning ?: return null
-        return RecordingMessage(R.string.dns_recording_warning_title, warning)
+        val title = if (adBlockModel.method == AdBlockMethod.VPN) {
+            R.string.dns_recording_warning_vpn_title
+        } else {
+            R.string.dns_recording_warning_title
+        }
+        return RecordingMessage(title, warning)
     }
 
     fun dismissRecordingMessage() {

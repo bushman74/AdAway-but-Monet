@@ -21,14 +21,11 @@
 package org.adaway.model.root;
 
 import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.Network;
-import android.os.Build;
 
 import org.adaway.R;
 import org.adaway.helper.PreferenceHelper;
 import org.adaway.model.adblocking.DnsRequest;
+import org.adaway.util.PrivateDns;
 
 import com.topjohnwu.superuser.Shell;
 
@@ -333,26 +330,11 @@ class TcpdumpUtils {
      * @return The warning to report, or {@code null} when plain DNS is in use.
      */
     static String getEncryptedDnsWarning(Context context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+        String serverName = PrivateDns.getActiveServerName(context);
+        if (serverName == null) {
             return null;
         }
-        ConnectivityManager connectivityManager =
-                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (connectivityManager == null) {
-            return null;
-        }
-        Network network = connectivityManager.getActiveNetwork();
-        if (network == null) {
-            return null;
-        }
-        LinkProperties linkProperties = connectivityManager.getLinkProperties(network);
-        if (linkProperties == null || !linkProperties.isPrivateDnsActive()) {
-            return null;
-        }
-        String serverName = linkProperties.getPrivateDnsServerName();
-        return context.getString(
-                R.string.dns_recording_warning_private_dns,
-                serverName == null ? "automatic" : serverName);
+        return context.getString(R.string.dns_recording_warning_private_dns, serverName);
     }
 
     /**

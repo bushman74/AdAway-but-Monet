@@ -16,6 +16,7 @@ import org.adaway.model.adblocking.AdBlockModel;
 import org.adaway.model.adblocking.DnsRequest;
 import org.adaway.model.error.HostErrorException;
 import org.adaway.tile.DnsRecordingTileService;
+import org.adaway.util.PrivateDns;
 import org.adaway.vpn.VpnServiceControls;
 
 import java.time.Instant;
@@ -165,6 +166,22 @@ public class VpnModel extends AdBlockModel {
     @Override
     public String getRecordingFailure() {
         return this.recordingFailure;
+    }
+
+    /**
+     * Warn when Private DNS is on: the requests then go encrypted to its server, past the VPN,
+     * so they are neither recorded nor blocked.
+     */
+    @Override
+    public String getRecordingWarning() {
+        if (!isRecordingLogs()) {
+            return null;
+        }
+        String serverName = PrivateDns.getActiveServerName(this.context);
+        if (serverName == null) {
+            return null;
+        }
+        return this.context.getString(R.string.dns_recording_warning_private_dns_vpn, serverName);
     }
 
     /**

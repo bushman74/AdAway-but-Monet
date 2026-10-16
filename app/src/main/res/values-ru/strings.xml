@@ -294,4 +294,6 @@
     <string name="search_match_case">Учитывать регистр</string>
     <string name="search_whole_word">Слово целиком</string>
     <string name="search_wildcards_hint">* любой текст, ? один символ</string>
+    <string name="dns_recording_warning_vpn_title">Частный DNS обходит AdAway</string>
+    <string name="dns_recording_warning_private_dns_vpn">Включён частный DNS (%1$s), поэтому запросы DNS идут в зашифрованном виде прямо на его сервер, минуя VPN. Они не записываются и не блокируются. Отключите частный DNS в настройках сети Android.</string>
 </resources>
