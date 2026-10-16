@@ -32,6 +32,14 @@ import timber.log.Timber;
  * @author Bruce BUJON (bruce.bujon(at)gmail(dot)com)
  */
 public class VpnModel extends AdBlockModel {
+    /**
+     * The number of hosts whose entry is kept in memory.
+     */
+    private static final int BLOCK_CACHE_SIZE = 16 * 1024;
+    /**
+     * Stands in the cache for a host that is not listed, as the cache cannot hold {@code null}.
+     */
+    private static final HostEntry NOT_LISTED = new HostEntry();
     private final HostEntryDao hostEntryDao;
     private final LruCache<String, HostEntry> blockCache;
     /**
@@ -59,10 +67,13 @@ public class VpnModel extends AdBlockModel {
         super(context);
         AppDatabase database = AppDatabase.getInstance(context);
         this.hostEntryDao = database.hostEntryDao();
-        this.blockCache = new LruCache<String, HostEntry>(4 * 1024) {
+        // The hosts not listed are cached too. They are most of the hosts requested, and without
+        // an entry to keep, each of their requests went to the database again.
+        this.blockCache = new LruCache<String, HostEntry>(BLOCK_CACHE_SIZE) {
             @Override
             protected HostEntry create(String key) {
-                return VpnModel.this.hostEntryDao.getEntry(key);
+                HostEntry entry = VpnModel.this.hostEntryDao.getEntry(key);
+                return entry == null ? NOT_LISTED : entry;
             }
         };
         this.logs = new LinkedHashMap<>();
@@ -185,7 +196,7 @@ public class VpnModel extends AdBlockModel {
      * Checks host entry related to an host name.
      *
      * @param host A hostname to check.
-     * @return The related host entry.
+     * @return The related host entry, or {@code null} when the host is not listed.
      */
     public HostEntry getEntry(String host) {
         // Compute miss rate periodically
@@ -204,6 +215,7 @@ public class VpnModel extends AdBlockModel {
             }
         }
         // Check cache
-        return this.blockCache.get(host);
+        HostEntry entry = this.blockCache.get(host);
+        return entry == NOT_LISTED ? null : entry;
     }
 }
